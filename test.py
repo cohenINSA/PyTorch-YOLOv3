@@ -68,9 +68,11 @@ if __name__ == "__main__":
     parser.add_argument("--nms_thres", type=float, default=0.5, help="iou thresshold for non-maximum suppression")
     parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
+    parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (e.g., 0 or 0,1,2,3).", default="0")
     opt = parser.parse_args()
     print(opt)
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     data_config = parse_data_config(opt.data_config)

@@ -36,11 +36,13 @@ if __name__ == "__main__":
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
     parser.add_argument("--compute_map", default=False, help="if True computes mAP every tenth batch")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
+    parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (e.g., 0 or 0,1,2,3).", default="0")
     opt = parser.parse_args()
     print(opt)
 
     logger = Logger("logs")
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     os.makedirs("output", exist_ok=True)
