@@ -33,7 +33,8 @@ if __name__ == "__main__":
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
-    parser.add_argument("--train", default=True, help="if True train the model, otherwise only evaluate the model")
+    parser.add_argument("--train", default=True, help="if True train the model (default=True).")
+    parser.add_argument("--eval", default=False, help="if True evaluate the model on validation data (default=False)")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
     parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (only supports single GPU training for now).",
                         default="0")
@@ -105,7 +106,8 @@ if __name__ == "__main__":
             model.load_darknet_weights(opt.pretrained_weights)
 
     # Get dataloader
-    dataset = ListDataset(train_path, augment=True, multiscale=opt.multiscale_training)
+    dataset = ListDataset(train_path, multiscale=opt.multiscale_training, transform=transforms.ToTensor(),
+                          data_augmentation=data_augmentation)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
@@ -115,21 +117,27 @@ if __name__ == "__main__":
         collate_fn=dataset.collate_fn,
     )
 
-    valid_dataset = ListDataset(valid_path, augment=True, multiscale=opt.multiscale_training)
-    valid_dataloader = torch.utils.data.DataLoader(
-        valid_dataset,
-        batch_size=1,
-        shuffle=False,
-        num_workers=opt.n_cpu,
-        pin_memory=True,
-        collate_fn=dataset.collate_fn,
-    )
+    if opt.eval:
+        valid_dataset = ListDataset(valid_path, multiscale=opt.multiscale_training, transform=transforms.ToTensor(),
+                                    train=False)
+        valid_dataloader = torch.utils.data.DataLoader(
+            valid_dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=opt.n_cpu,
+            pin_memory=True,
+            collate_fn=dataset.collate_fn,
+        )
 
     # Why decay*batch size and learning rate/batch size:
     # https://github.com/AlexeyAB/darknet/issues/1943 (for darknet only)
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr=learning_rate/batch_size, momentum=momentum,
-                                weight_decay=decay*batch_size)
+    optimizer = torch.optim.SGD(params, lr=learning_rate / batch_size, momentum=momentum,
+                                weight_decay=decay * batch_size)
+    init_epoch = int(model.seen / len(dataset))
+    max_epoch = max(opt.epochs, int(max_batches * batch_size / len(dataset)))
+    processed_batches = int(model.seen / batch_size)
+    optimizer.zero_grad()
 
     metrics = [
         "grid_size",
@@ -147,11 +155,6 @@ if __name__ == "__main__":
         "conf_obj",
         "conf_noobj",
     ]
-
-    init_epoch = int(model.seen/len(dataset))
-    max_epoch = max(opt.epochs, int(max_batches*batch_size/len(dataset)))
-    processed_batches = int(model.seen / batch_size)
-    optimizer.zero_grad()
 
     for epoch in range(init_epoch, max_epoch):
         if opt.train:
@@ -213,54 +216,55 @@ if __name__ == "__main__":
 
             model.seen = len(dataloader.dataset) * (epoch+1)
 
-        if epoch % opt.evaluation_interval == 0:
-            print("\n---- Evaluating Model ----")
-            # Evaluate the model on the validation set
-            model.eval()
-            Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+        if opt.eval:
+            if epoch % opt.evaluation_interval == 0:
+                print("\n---- Evaluating Model ----")
+                # Evaluate the model on the validation set
+                model.eval()
+                Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
-            labels = []
-            sample_metrics = []  # list of tuples (TP, confs, pred)
+                labels = []
+                sample_metrics = []  # list of tuples (TP, confs, pred)
 
-            for batch_i, (_, imgs, targets) in enumerate(tqdm.tqdm(dataloader, desc="Detecting objects")):
-                # Extract labels
-                labels += targets[:, 1].tolist()
-                # Rescale target
-                targets[:, 2:] = xywh2xyxy(targets[:, 2:])
-                targets[:, 2:] *= opt.img_size
+                for batch_i, (_, imgs, targets) in enumerate(tqdm.tqdm(dataloader, desc="Detecting objects")):
+                    # Extract labels
+                    labels += targets[:, 1].tolist()
+                    # Rescale target
+                    targets[:, 2:] = xywh2xyxy(targets[:, 2:])
+                    targets[:, 2:] *= opt.img_size
 
-                imgs = Variable(imgs.type(Tensor), requires_grad=False)
+                    imgs = Variable(imgs.type(Tensor), requires_grad=False)
 
-                with torch.no_grad():
-                    outputs = model(imgs)
-                    outputs = non_max_suppression(outputs, conf_thres=conf_thresh, nms_thres=nms_thresh)
+                    with torch.no_grad():
+                        outputs = model(imgs)
+                        outputs = non_max_suppression(outputs, conf_thres=conf_thresh, nms_thres=nms_thresh)
 
-                sample_metrics += get_batch_statistics(outputs, targets, iou_threshold=iou_thresh)
+                    sample_metrics += get_batch_statistics(outputs, targets, iou_threshold=iou_thresh)
 
-            # Concatenate sample statistics
-            if len(sample_metrics) == 0:
-                true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
-            else:
-                true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
-            precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
+                # Concatenate sample statistics
+                if len(sample_metrics) == 0:
+                    true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
+                else:
+                    true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
+                precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
 
-            evaluation_metrics = [
-                ("val_precision", precision.mean()),
-                ("val_recall", recall.mean()),
-                ("val_mAP", AP.mean()),
-                ("val_f1", f1.mean()),
-            ]
-            logger.list_of_scalars_summary(evaluation_metrics, epoch)
+                evaluation_metrics = [
+                    ("val_precision", precision.mean()),
+                    ("val_recall", recall.mean()),
+                    ("val_mAP", AP.mean()),
+                    ("val_f1", f1.mean()),
+                ]
+                logger.list_of_scalars_summary(evaluation_metrics, epoch)
 
-            # Print class APs and mAP
-            ap_table = [["Index", "Class name", "AP"]]
-            for i, c in enumerate(ap_class):
-                ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
-            print(AsciiTable(ap_table).table)
-            print("---- mAP {}".format(AP.mean()))
+                # Print class APs and mAP
+                ap_table = [["Index", "Class name", "AP"]]
+                for i, c in enumerate(ap_class):
+                    ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
+                print(AsciiTable(ap_table).table)
+                print("---- mAP {}".format(AP.mean()))
 
-            if not opt.train:
-                break
+                if not opt.train:
+                    break
 
         if epoch % opt.checkpoint_interval == 0:
             save_to = os.path.join(save_path, config_name[:-4] + str(epoch) + ".pth")
