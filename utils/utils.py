@@ -16,14 +16,19 @@ def adjust_learning_rate_darknet(optimizer, batch, cfg):
     steps = [float(step) for step in cfg['steps'].split(',')]
     scales = [float(scale) for scale in cfg['scales'].split(',')]
     batch_size = int(cfg['batch'])
-    for i in range(len(steps)):
-        scale = scales[i] if i < len(scales) else 1
-        if batch >= steps[i]:
-            lr = lr * scale
-            if batch == steps[i]:
+    burn_in = int(cfg['burn_in'])
+    if batch <= burn_in:
+        power = 4
+        lr = lr * (batch/burn_in) ** power
+    else:
+        for i in range(len(steps)):
+            scale = scales[i] if i < len(scales) else 1
+            if batch >= steps[i]:
+                lr = lr * scale
+                if batch == steps[i]:
+                    break
+            else:
                 break
-        else:
-            break
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr/batch_size
     return lr
@@ -32,15 +37,19 @@ def adjust_learning_rate(optimizer, batch, cfg):
     lr = float(cfg['learning_rate'])
     steps = [float(step) for step in cfg['steps'].split(',')]
     scales = [float(scale) for scale in cfg['scales'].split(',')]
-    batch_size = int(cfg['batch'])
-    for i in range(len(steps)):
-        scale = scales[i] if i < len(scales) else 1
-        if batch >= steps[i]:
-            lr = lr * scale
-            if batch == steps[i]:
+    burn_in = int(cfg['burn_in'])
+    if batch <= burn_in:
+        power = 4
+        lr = lr * (batch / burn_in) ** power
+    else:
+        for i in range(len(steps)):
+            scale = scales[i] if i < len(scales) else 1
+            if batch >= steps[i]:
+                lr = lr * scale
+                if batch == steps[i]:
+                    break
+            else:
                 break
-        else:
-            break
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return lr

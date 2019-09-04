@@ -73,6 +73,8 @@ if __name__ == "__main__":
     gradient_accumulation = batch_size/subdivisions
 
     # Augmentation from config file
+    if not 'flip' in cfg.keys():
+        cfg['flip'] = 0
     data_augmentation = dict()
     data_augmentation['jitter'] = float(cfg['jitter']) if 'jitter' in cfg.keys() else 0
     data_augmentation['hue'] = float(cfg['hue']) if 'hue' in cfg.keys() else 0
@@ -124,7 +126,8 @@ if __name__ == "__main__":
     #optimizer = torch.optim.Adam(model.parameters())
     # Why decay*batch size and learning rate/batch size:
     # https://github.com/AlexeyAB/darknet/issues/1943 (for darknet only)
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate/batch_size, momentum=momentum,
+    params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=learning_rate/batch_size, momentum=momentum,
                                 weight_decay=decay*batch_size)
 
     metrics = [
@@ -149,11 +152,6 @@ if __name__ == "__main__":
     processed_batches = int(model.seen / batch_size)
     optimizer.zero_grad()
 
-    print("max batches=", max_batches)
-    print("batch size=", batch_size)
-    print("nsamples=", len(dataset))
-    print("INIT_EPOCH=", init_epoch)
-    print("MAX EPOCH=", max_epoch)
     for epoch in range(init_epoch, max_epoch):
         if opt.train:
             model.train()
@@ -161,7 +159,7 @@ if __name__ == "__main__":
             processed_batches = model.seen/batch_size
             lr = adjust_learning_rate_darknet(optimizer, processed_batches, cfg)
             for batch_i, (_, imgs, targets) in enumerate(dataloader):
-                adjust_learning_rate_darknet(optimizer, processed_batches, cfg)
+                current_lr = adjust_learning_rate_darknet(optimizer, processed_batches, cfg)
                 processed_batches += 1
                 batches_done = len(dataloader) * epoch + batch_i
 
