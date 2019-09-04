@@ -11,23 +11,39 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 
-def adjust_learning_rate(optimizer, batch, cfg):
-        """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-        lr = float(cfg['learning_rate'])
-        steps = [float(step) for step in cfg['steps'].split(',')]
-        scales = [float(scale) for scale in cfg['scales'].split(',')]
-        batch_size = int(cfg['batch'])
-        for i in range(len(steps)):
-            scale = scales[i] if i < len(scales) else 1
-            if batch >= steps[i]:
-                lr = lr * scale
-                if batch == steps[i]:
-                    break
-            else:
+def adjust_learning_rate_darknet(optimizer, batch, cfg):
+    lr = float(cfg['learning_rate'])
+    steps = [float(step) for step in cfg['steps'].split(',')]
+    scales = [float(scale) for scale in cfg['scales'].split(',')]
+    batch_size = int(cfg['batch'])
+    for i in range(len(steps)):
+        scale = scales[i] if i < len(scales) else 1
+        if batch >= steps[i]:
+            lr = lr * scale
+            if batch == steps[i]:
                 break
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr/batch_size
-        return lr
+        else:
+            break
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr/batch_size
+    return lr
+
+def adjust_learning_rate(optimizer, batch, cfg):
+    lr = float(cfg['learning_rate'])
+    steps = [float(step) for step in cfg['steps'].split(',')]
+    scales = [float(scale) for scale in cfg['scales'].split(',')]
+    batch_size = int(cfg['batch'])
+    for i in range(len(steps)):
+        scale = scales[i] if i < len(scales) else 1
+        if batch >= steps[i]:
+            lr = lr * scale
+            if batch == steps[i]:
+                break
+        else:
+            break
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    return lr
 
 
 def to_cpu(tensor):

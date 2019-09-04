@@ -24,26 +24,31 @@ import torch.optim as optim
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=100, help="number of epochs")
-    parser.add_argument("--batch_size", type=int, default=8, help="size of each image batch")
-    parser.add_argument("--gradient_accumulations", type=int, default=2, help="number of gradient accums before step")
+    parser.add_argument("--epochs", type=int, default=2, help="number of epochs")
+    parser.add_argument("--batch_size", type=int, help="size of each image batch")
     parser.add_argument("--model_def", type=str, default="config/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
-    parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
+    parser.add_argument("--n_cpu", type=int, default=1, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
-    parser.add_argument("--compute_map", default=False, help="if True computes mAP every tenth batch")
+    parser.add_argument("--train", default=True, help="if True train the model, otherwise only evaluate the model")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
-    parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (e.g., 0 or 0,1,2,3).", default="0")
+    parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (only supports single GPU training for now).",
+                        default="0")
+    parser.add_argument("--no_cuda", help="Deactivate CUDA support", action="store_true")
+    parser.add_argument("--iou_thresh", type=str, help="IoU threshold", default="0.5")
+    parser.add_argument("--nms_thresh", type=str, help="NMS threshold", default="0.4")
+    parser.add_argument("--conf_thresh", type=str, help="Confidence threshold", default="0.25")
     opt = parser.parse_args()
     print(opt)
 
     logger = Logger("logs")
 
     os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    use_cuda = not opt.no_cuda
+    device = torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
 
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
@@ -53,6 +58,36 @@ if __name__ == "__main__":
     train_path = data_config["train"]
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
+
+    # Get training configuration
+    cfg = parse_model_config(opt.model_def)[0]
+    batch_size = int(opt.batch_size) if opt.batch_size is not None else int(cfg['batch'])
+    max_batches = int(cfg['max_batches'])
+    subdivisions = int(cfg['subdivisions'])
+    learning_rate = float(cfg['learning_rate'])
+    momentum = float(cfg['momentum'])
+    decay = float(cfg['decay'])
+    steps = [float(step) for step in cfg['steps'].split(',')]
+    scales = [float(scale) for scale in cfg['scales'].split(',')]
+    warmup = int(cfg['burn_in'])
+    gradient_accumulation = batch_size/subdivisions
+
+    # Augmentation from config file
+    data_augmentation = dict()
+    data_augmentation['jitter'] = float(cfg['jitter']) if 'jitter' in cfg.keys() else 0
+    data_augmentation['hue'] = float(cfg['hue']) if 'hue' in cfg.keys() else 0
+    data_augmentation['saturation'] = float(cfg['saturation']) if 'saturation' in cfg.keys() else 0
+    data_augmentation['exposure'] = float(cfg['exposure']) if 'exposure' in cfg.keys() else 0
+    data_augmentation['angle'] = float(cfg['angle']) if 'angle' in cfg.keys() else 0
+    data_augmentation['flip'] = True if int(cfg['flip']) == 1 else False
+
+    seed = int(time.time())
+    eps = 1e-5
+
+    # Test parameters
+    conf_thresh = float(opt.conf_thresh)
+    nms_thresh = float(opt.nms_thresh)
+    iou_thresh = float(opt.iou_thresh)
 
     # Initiate model
     model = Darknet(opt.model_def).to(device)
@@ -69,14 +104,28 @@ if __name__ == "__main__":
     dataset = ListDataset(train_path, augment=True, multiscale=opt.multiscale_training)
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=opt.batch_size,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=opt.n_cpu,
         pin_memory=True,
         collate_fn=dataset.collate_fn,
     )
 
-    optimizer = torch.optim.Adam(model.parameters())
+    valid_dataset = ListDataset(valid_path, augment=True, multiscale=opt.multiscale_training)
+    valid_dataloader = torch.utils.data.DataLoader(
+        valid_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=opt.n_cpu,
+        pin_memory=True,
+        collate_fn=dataset.collate_fn,
+    )
+
+    #optimizer = torch.optim.Adam(model.parameters())
+    # Why decay*batch size and learning rate/batch size:
+    # https://github.com/AlexeyAB/darknet/issues/1943 (for darknet only)
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate/batch_size, momentum=momentum,
+                                weight_decay=decay*batch_size)
 
     metrics = [
         "grid_size",
@@ -95,59 +144,74 @@ if __name__ == "__main__":
         "conf_noobj",
     ]
 
-    for epoch in range(opt.epochs):
-        model.train()
-        start_time = time.time()
-        for batch_i, (_, imgs, targets) in enumerate(dataloader):
-            batches_done = len(dataloader) * epoch + batch_i
+    init_epoch = int(model.seen/len(dataset))
+    max_epoch = max(opt.epochs, int(max_batches*batch_size/len(dataset)))
+    processed_batches = int(model.seen / batch_size)
+    optimizer.zero_grad()
 
-            imgs = Variable(imgs.to(device))
-            targets = Variable(targets.to(device), requires_grad=False)
+    print("max batches=", max_batches)
+    print("batch size=", batch_size)
+    print("nsamples=", len(dataset))
+    print("INIT_EPOCH=", init_epoch)
+    print("MAX EPOCH=", max_epoch)
+    for epoch in range(init_epoch, max_epoch):
+        if opt.train:
+            model.train()
+            start_time = time.time()
+            processed_batches = model.seen/batch_size
+            lr = adjust_learning_rate_darknet(optimizer, processed_batches, cfg)
+            for batch_i, (_, imgs, targets) in enumerate(dataloader):
+                adjust_learning_rate_darknet(optimizer, processed_batches, cfg)
+                processed_batches += 1
+                batches_done = len(dataloader) * epoch + batch_i
 
-            loss, outputs = model(imgs, targets)
-            loss.backward()
+                imgs = Variable(imgs.to(device))
+                targets = Variable(targets.to(device), requires_grad=False)
 
-            if batches_done % opt.gradient_accumulations:
-                # Accumulates gradient before each step
-                optimizer.step()
-                optimizer.zero_grad()
+                loss, outputs = model(imgs, targets)
+                loss.backward()
 
-            # ----------------
-            #   Log progress
-            # ----------------
+                if batches_done % gradient_accumulation:
+                    # Accumulates gradient before each step
+                    optimizer.step()
+                    optimizer.zero_grad()
 
-            log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, opt.epochs, batch_i, len(dataloader))
+                # ----------------
+                #   Log progress
+                # ----------------
 
-            metric_table = [["Metrics", *["YOLO Layer {}".format(i) for i in range(len(model.yolo_layers))]]]
+                log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, opt.epochs, batch_i, len(dataloader))
 
-            # Log metrics at each YOLO layer
-            for i, metric in enumerate(metrics):
-                formats = {m: "%.6f" for m in metrics}
-                formats["grid_size"] = "%2d"
-                formats["cls_acc"] = "%.2f%%"
-                row_metrics = [formats[metric] % yolo.metrics.get(metric, 0) for yolo in model.yolo_layers]
-                metric_table += [[metric, *row_metrics]]
+                metric_table = [["Metrics", *["YOLO Layer {}".format(i) for i in range(len(model.yolo_layers))]]]
 
-                # Tensorboard logging
-                tensorboard_log = []
-                for j, yolo in enumerate(model.yolo_layers):
-                    for name, metric in yolo.metrics.items():
-                        if name != "grid_size":
-                            tensorboard_log += [("{}_{}".format(name, j+1), metric)]
-                tensorboard_log += [("loss", loss.item())]
-                logger.list_of_scalars_summary(tensorboard_log, batches_done)
+                # Log metrics at each YOLO layer
+                for i, metric in enumerate(metrics):
+                    formats = {m: "%.6f" for m in metrics}
+                    formats["grid_size"] = "%2d"
+                    formats["cls_acc"] = "%.2f%%"
+                    row_metrics = [formats[metric] % yolo.metrics.get(metric, 0) for yolo in model.yolo_layers]
+                    metric_table += [[metric, *row_metrics]]
 
-            log_str += AsciiTable(metric_table).table
-            log_str += "\nTotal loss {}".format(loss.item())
+                    # Tensorboard logging
+                    tensorboard_log = []
+                    for j, yolo in enumerate(model.yolo_layers):
+                        for name, metric in yolo.metrics.items():
+                            if name != "grid_size":
+                                tensorboard_log += [("{}_{}".format(name, j+1), metric)]
+                    tensorboard_log += [("loss", loss.item())]
+                    logger.list_of_scalars_summary(tensorboard_log, batches_done)
 
-            # Determine approximate time left for epoch
-            epoch_batches_left = len(dataloader) - (batch_i + 1)
-            time_left = datetime.timedelta(seconds=epoch_batches_left * (time.time() - start_time) / (batch_i + 1))
-            log_str += "\n---- ETA {}".format(time_left)
+                log_str += AsciiTable(metric_table).table
+                log_str += "\nTotal loss {}".format(loss.item())
 
-            print(log_str)
+                # Determine approximate time left for epoch
+                epoch_batches_left = len(dataloader) - (batch_i + 1)
+                time_left = datetime.timedelta(seconds=epoch_batches_left * (time.time() - start_time) / (batch_i + 1))
+                log_str += "\n---- ETA {}".format(time_left)
 
-            model.seen += imgs.size(0)
+                print(log_str)
+
+            model.seen = len(dataloader.dataset) * (epoch+1)
 
         if epoch % opt.evaluation_interval == 0:
             print("\n---- Evaluating Model ----")
@@ -155,11 +219,11 @@ if __name__ == "__main__":
             precision, recall, AP, f1, ap_class = evaluate(
                 model,
                 path=valid_path,
-                iou_thres=0.5,
-                conf_thres=0.5,
-                nms_thres=0.5,
+                iou_thres=iou_thresh,
+                conf_thres=conf_thresh,
+                nms_thres=nms_thresh,
                 img_size=opt.img_size,
-                batch_size=opt.batch_size,
+                batch_size=1,
             )
             evaluation_metrics = [
                 ("val_precision", precision.mean()),
@@ -176,5 +240,10 @@ if __name__ == "__main__":
             print(AsciiTable(ap_table).table)
             print("---- mAP {}".format(AP.mean()))
 
+            if not opt.train:
+                break
+
         if epoch % opt.checkpoint_interval == 0:
             torch.save(model.state_dict(), "checkpoints/yolov3_ckpt_%d.pth" % epoch)
+
+    print("Normal ending of the program.")

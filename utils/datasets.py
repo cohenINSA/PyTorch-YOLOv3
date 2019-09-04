@@ -4,10 +4,12 @@ import os
 import sys
 import numpy as np
 from PIL import Image
+from PIL import ImageDraw
 import torch
 import torch.nn.functional as F
 
-from utils.augmentations import horisontal_flip
+from utils.augmentations import *
+from utils.image import *
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
@@ -131,7 +133,7 @@ class ListDataset(Dataset):
         # Apply augmentations
         if self.augment:
             if np.random.random() < 0.5:
-                img, targets = horisontal_flip(img, targets)
+                img, targets = horizontal_flip(img, targets)
 
         return img_path, img, targets
 
@@ -153,3 +155,110 @@ class ListDataset(Dataset):
 
     def __len__(self):
         return len(self.img_files)
+
+
+class ListDatasetFasterRCNN(Dataset):
+    def __init__(self, list_path, img_size=(416, 416), transform=None, train=True,
+                 target_transform=None, data_augmentation=None, shuffle=True):
+        with open(list_path, "r") as file:
+            self.img_files = file.readlines()
+
+        if shuffle:
+            random.shuffle(self.img_files)
+
+        self.label_files = [
+            path.replace(".png", ".txt").replace(".jpg", ".txt")
+            for path in self.img_files
+        ]
+        self.Nsamples = len(self.img_files)
+        self.shape = img_size
+        self.max_objects = 100
+        self.batch_count = 0
+        self.transform = transform
+        self.target_transform = target_transform
+        self.data_augmentation = data_augmentation
+        self.train = train
+
+    def __getitem__(self, index):
+        assert index < len(self), 'index range error'
+
+        outputs = dict()
+        img_path = self.img_files[index % len(self.img_files)].rstrip()
+        if self.train:
+            jitter = self.data_augmentation['jitter']
+            hue = self.data_augmentation['hue']
+            saturation = self.data_augmentation['saturation']
+            exposure = self.data_augmentation['exposure']
+            flip = self.data_augmentation['flip']
+
+            img, labels = load_data_detection(img_path, self.shape, jitter, hue, saturation, exposure, flip)
+
+            labels = shift_to_xy(labels)
+            if len(labels) > 0:
+                labels_full_range = rescale_full_range(labels, img.width, img.height)
+                labels = torch.from_numpy(labels)
+                labels_full_range = torch.from_numpy(labels_full_range)
+            else:
+                labels_full_range = torch.from_numpy(labels)
+        else:
+            img = Image.open(img_path).convert('RGB')
+            if self.shape:
+                img = img.resize(self.shape)
+
+            labpath = img_path.replace('.jpg', '.txt').replace('.png', '.txt')
+            try:
+                labels = np.loadtxt(labpath).reshape(-1, 5)  # if empty, return array([], shape=(0, 5), dtype=float64)
+            except UserWarning as e:
+                print("User Warning: {}".format(e))
+            except Exception:
+                labels = np.zeros((0, 5))
+
+            labels = shift_to_xy(labels)
+            labels_full_range = rescale_full_range(labels, img.width, img.height)
+            labels = torch.from_numpy(labels)
+            labels_full_range = torch.from_numpy(labels_full_range)
+
+        boxes_only = torch.zeros((len(labels_full_range), 4), dtype=torch.float32)
+        boxes_only[:] = labels_full_range[:, 1:]
+        boxes_only = labels_full_range[:, 1:]
+
+        cls_only = torch.zeros(len(labels_full_range), dtype=torch.int64)
+        cls_only[:] = labels_full_range[:, 0]
+
+        outputs['boxes'] = boxes_only.float()
+        outputs['labels'] = cls_only
+        outputs['image_id'] = torch.tensor([index])
+        outputs['iscrowd'] = torch.zeros((len(labels_full_range),), dtype=torch.int64)
+
+        area = (boxes_only[:, 3]-boxes_only[:, 1]) * (boxes_only[:, 2] - boxes_only[:, 0])
+
+        outputs['area'] = area
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            outputs['boxes'] = self.target_transform(outputs['boxes'])
+
+        #print("outputs=", outputs)
+        return img_path, img, outputs
+
+    def collate_fn(self, batch):
+        paths, imgs, targets = list(zip(*batch))
+        # Remove empty placeholder targets
+        targets = [target for target in targets]
+        # # Add sample index to targets
+        # for i, boxes in enumerate(targets):
+        #     boxes[:, 0] = i
+        # targets = torch.cat(targets, 0)
+
+        # Resize images to input shape
+        # imgs = torch.stack([resize(img, self.shape) for img in imgs])
+        self.batch_count += 1
+        return paths, imgs, targets
+
+    def __len__(self):
+        return self.Nsamples
+
+    def get_height_and_width(self):
+        return self.shape
