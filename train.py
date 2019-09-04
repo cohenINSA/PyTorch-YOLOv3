@@ -58,8 +58,10 @@ if __name__ == "__main__":
     train_path = data_config["train"]
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
+    save_path = data_config["backup"]
 
     # Get training configuration
+    _, config_name = os.path.split(opt.model_def)
     cfg = parse_model_config(opt.model_def)[0]
     batch_size = int(opt.batch_size) if opt.batch_size is not None else int(cfg['batch'])
     max_batches = int(cfg['max_batches'])
@@ -123,7 +125,6 @@ if __name__ == "__main__":
         collate_fn=dataset.collate_fn,
     )
 
-    #optimizer = torch.optim.Adam(model.parameters())
     # Why decay*batch size and learning rate/batch size:
     # https://github.com/AlexeyAB/darknet/issues/1943 (for darknet only)
     params = [p for p in model.parameters() if p.requires_grad]
@@ -174,55 +175,75 @@ if __name__ == "__main__":
                     optimizer.step()
                     optimizer.zero_grad()
 
-                # ----------------
-                #   Log progress
-                # ----------------
+                if batch_i % 10 == 0:
+                    # ----------------
+                    #   Log progress
+                    # ----------------
 
-                log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, opt.epochs, batch_i, len(dataloader))
+                    log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, opt.epochs, batch_i, len(dataloader))
 
-                metric_table = [["Metrics", *["YOLO Layer {}".format(i) for i in range(len(model.yolo_layers))]]]
+                    metric_table = [["Metrics", *["YOLO Layer {}".format(i) for i in range(len(model.yolo_layers))]]]
 
-                # Log metrics at each YOLO layer
-                for i, metric in enumerate(metrics):
-                    formats = {m: "%.6f" for m in metrics}
-                    formats["grid_size"] = "%2d"
-                    formats["cls_acc"] = "%.2f%%"
-                    row_metrics = [formats[metric] % yolo.metrics.get(metric, 0) for yolo in model.yolo_layers]
-                    metric_table += [[metric, *row_metrics]]
+                    # Log metrics at each YOLO layer
+                    for i, metric in enumerate(metrics):
+                        formats = {m: "%.6f" for m in metrics}
+                        formats["grid_size"] = "%2d"
+                        formats["cls_acc"] = "%.2f%%"
+                        row_metrics = [formats[metric] % yolo.metrics.get(metric, 0) for yolo in model.yolo_layers]
+                        metric_table += [[metric, *row_metrics]]
 
-                    # Tensorboard logging
-                    tensorboard_log = []
-                    for j, yolo in enumerate(model.yolo_layers):
-                        for name, metric in yolo.metrics.items():
-                            if name != "grid_size":
-                                tensorboard_log += [("{}_{}".format(name, j+1), metric)]
-                    tensorboard_log += [("loss", loss.item())]
-                    logger.list_of_scalars_summary(tensorboard_log, batches_done)
+                        # Tensorboard logging
+                        tensorboard_log = []
+                        for j, yolo in enumerate(model.yolo_layers):
+                            for name, metric in yolo.metrics.items():
+                                if name != "grid_size":
+                                    tensorboard_log += [("{}_{}".format(name, j+1), metric)]
+                        tensorboard_log += [("loss", loss.item())]
+                        logger.list_of_scalars_summary("training", tensorboard_log, batches_done)
 
-                log_str += AsciiTable(metric_table).table
-                log_str += "\nTotal loss {}".format(loss.item())
+                    log_str += AsciiTable(metric_table).table
+                    log_str += "\nTotal loss {}".format(loss.item())
 
-                # Determine approximate time left for epoch
-                epoch_batches_left = len(dataloader) - (batch_i + 1)
-                time_left = datetime.timedelta(seconds=epoch_batches_left * (time.time() - start_time) / (batch_i + 1))
-                log_str += "\n---- ETA {}".format(time_left)
+                    # Determine approximate time left for epoch
+                    epoch_batches_left = len(dataloader) - (batch_i + 1)
+                    time_left = datetime.timedelta(seconds=epoch_batches_left * (time.time() - start_time) / (batch_i + 1))
+                    log_str += "\n---- ETA {}".format(time_left)
 
-                print(log_str)
+                    print(log_str)
 
             model.seen = len(dataloader.dataset) * (epoch+1)
 
         if epoch % opt.evaluation_interval == 0:
             print("\n---- Evaluating Model ----")
             # Evaluate the model on the validation set
-            precision, recall, AP, f1, ap_class = evaluate(
-                model,
-                path=valid_path,
-                iou_thres=iou_thresh,
-                conf_thres=conf_thresh,
-                nms_thres=nms_thresh,
-                img_size=opt.img_size,
-                batch_size=1,
-            )
+            model.eval()
+            Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+
+            labels = []
+            sample_metrics = []  # list of tuples (TP, confs, pred)
+
+            for batch_i, (_, imgs, targets) in enumerate(tqdm.tqdm(dataloader, desc="Detecting objects")):
+                # Extract labels
+                labels += targets[:, 1].tolist()
+                # Rescale target
+                targets[:, 2:] = xywh2xyxy(targets[:, 2:])
+                targets[:, 2:] *= opt.img_size
+
+                imgs = Variable(imgs.type(Tensor), requires_grad=False)
+
+                with torch.no_grad():
+                    outputs = model(imgs)
+                    outputs = non_max_suppression(outputs, conf_thres=conf_thresh, nms_thres=nms_thresh)
+
+                sample_metrics += get_batch_statistics(outputs, targets, iou_threshold=iou_thresh)
+
+            # Concatenate sample statistics
+            if len(sample_metrics) == 0:
+                true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
+            else:
+                true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
+            precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
+
             evaluation_metrics = [
                 ("val_precision", precision.mean()),
                 ("val_recall", recall.mean()),
@@ -242,6 +263,9 @@ if __name__ == "__main__":
                 break
 
         if epoch % opt.checkpoint_interval == 0:
-            torch.save(model.state_dict(), "checkpoints/yolov3_ckpt_%d.pth" % epoch)
+            save_to = os.path.join(save_path, config_name[:-4] + str(epoch) + ".pth")
+            torch.save(model.state_dict(),  save_to)
+            print("Model saved as %s" % save_to)
 
+    logger.close()
     print("Normal ending of the program.")
