@@ -85,7 +85,6 @@ class ListDataset(Dataset):
     def __getitem__(self, index):
         assert index < len(self), 'index range error'
 
-        targets = None
         img_path = self.img_files[index % len(self.img_files)].rstrip()
         if self.train:
             jitter = self.data_augmentation['jitter']

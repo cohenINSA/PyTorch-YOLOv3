@@ -33,8 +33,8 @@ if __name__ == "__main__":
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
-    parser.add_argument("--train", default=True, help="if True train the model (default=True).")
-    parser.add_argument("--eval", default=False, help="if True evaluate the model on validation data (default=False)")
+    parser.add_argument("--train", default='True', help="if True train the model (default=True).")
+    parser.add_argument("--eval", default='False', help="if True evaluate the model on validation data (default=False)")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
     parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (only supports single GPU training for now).",
                         default="0")
@@ -53,6 +53,9 @@ if __name__ == "__main__":
 
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
+
+    train = opt.train == 'True'
+    valid = opt.eval == 'True'
 
     # Get data configuration
     data_config = parse_data_config(opt.data_config)
@@ -117,7 +120,7 @@ if __name__ == "__main__":
         collate_fn=dataset.collate_fn,
     )
 
-    if opt.eval:
+    if valid:
         valid_dataset = ListDataset(valid_path, multiscale=opt.multiscale_training, transform=transforms.ToTensor(),
                                     train=False)
         valid_dataloader = torch.utils.data.DataLoader(
@@ -157,7 +160,7 @@ if __name__ == "__main__":
     ]
 
     for epoch in range(init_epoch, max_epoch):
-        if opt.train:
+        if train:
             model.train()
             start_time = time.time()
             processed_batches = model.seen/batch_size
@@ -216,7 +219,7 @@ if __name__ == "__main__":
 
             model.seen = len(dataloader.dataset) * (epoch+1)
 
-        if opt.eval:
+        if valid:
             if epoch % opt.evaluation_interval == 0:
                 print("\n---- Evaluating Model ----")
                 # Evaluate the model on the validation set
@@ -226,21 +229,23 @@ if __name__ == "__main__":
                 labels = []
                 sample_metrics = []  # list of tuples (TP, confs, pred)
 
-                for batch_i, (_, imgs, targets) in enumerate(tqdm.tqdm(dataloader, desc="Detecting objects")):
+                for batch_i, (_, imgs, targets) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
                     # Extract labels
                     labels += targets[:, 1].tolist()
                     # Rescale target
                     targets[:, 2:] = xywh2xyxy(targets[:, 2:])
                     targets[:, 2:] *= opt.img_size
 
-                    imgs = Variable(imgs.type(Tensor), requires_grad=False)
+                    imgs = imgs.type(Tensor)
 
                     with torch.no_grad():
                         outputs = model(imgs)
-                        outputs = non_max_suppression(outputs, conf_thres=conf_thresh, nms_thres=nms_thresh)
-
+                    outputs = non_max_suppression(outputs, conf_thres=conf_thresh, nms_thres=nms_thresh)
+                    #print("\nTARGETS=", targets)
+                    #print("OUTPUT=", outputs)
                     sample_metrics += get_batch_statistics(outputs, targets, iou_threshold=iou_thresh)
 
+                print("Batches processed")
                 # Concatenate sample statistics
                 if len(sample_metrics) == 0:
                     true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
@@ -248,13 +253,14 @@ if __name__ == "__main__":
                     true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
                 precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
 
+                print("AP per class computed")
                 evaluation_metrics = [
                     ("val_precision", precision.mean()),
                     ("val_recall", recall.mean()),
                     ("val_mAP", AP.mean()),
                     ("val_f1", f1.mean()),
                 ]
-                logger.list_of_scalars_summary(evaluation_metrics, epoch)
+                logger.list_of_scalars_summary("Validation", evaluation_metrics, epoch)
 
                 # Print class APs and mAP
                 ap_table = [["Index", "Class name", "AP"]]
@@ -263,10 +269,10 @@ if __name__ == "__main__":
                 print(AsciiTable(ap_table).table)
                 print("---- mAP {}".format(AP.mean()))
 
-                if not opt.train:
+                if not train:
                     break
 
-        if epoch % opt.checkpoint_interval == 0:
+        if train and epoch % opt.checkpoint_interval == 0:
             save_to = os.path.join(save_path, config_name[:-4] + str(epoch) + ".pth")
             torch.save(model.state_dict(),  save_to)
             print("Model saved as %s" % save_to)
