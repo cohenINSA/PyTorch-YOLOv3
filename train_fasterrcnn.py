@@ -68,6 +68,9 @@ if __name__ == "__main__":
     train_path = data_config["train"]
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
+    backup_path = data_config["backup"]
+    _, backup_name = os.path.split(opt.model_def)
+    backup_name, _ = os.path.splitext(backup_name)
 
     # Get training configuration
     cfg = parse_model_config(opt.model_def)[0]
@@ -114,7 +117,7 @@ if __name__ == "__main__":
     # If specified we start from checkpoint
     if opt.pretrained_weights is not None:
         if opt.pretrained_weights.endswith(".pth"):
-            model.load_state_dict(torch.load(opt.pretrained_weights))
+            model.load_state_dict(torch.load(opt.pretrained_weights, map_location=lambda storage, loc: storage))
             _, name = os.path.split(opt.pretrained_weights)
             load_epoch = int(name[:-4].split("_")[-1])
         else:
@@ -151,14 +154,17 @@ if __name__ == "__main__":
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = optim.SGD(params, lr=learning_rate, momentum=momentum, dampening=0, weight_decay=decay)
 
-    images_seen = 0
-    init_epoch = int(images_seen / len(dataset))
+    images_seen = load_epoch*len(dataset)
+    init_epoch = load_epoch + 1
     max_epoch = max(opt.epochs, int(max_batches * batch_size / len(dataset)))
     processed_batches = load_epoch/batch_size
 
+    loss_logger = DictSaver()
+    loss_save_path = os.path.join(backup_path, backup_name + "_loss.csv")
+
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
     model = model.to(device)
-    for epoch in range(opt.epochs):
+    for epoch in range(init_epoch, max_epoch):
         if train:
             model.train()
             start_time = time.time()
@@ -176,6 +182,7 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 losses.backward()
 
+                loss_logger.add_data(loss_dict)
                 if batch_i % 10 == 0:  # print log every 10 batches
                     # ----------------
                     #   Log progress
@@ -198,15 +205,17 @@ if __name__ == "__main__":
 
                 optimizer.step()
 
+        loss_logger.save(loss_save_path)
         if valid:
             if epoch % opt.evaluation_interval == 0:
                 print("\n---- Evaluating Model ----\n")
                 # Evaluate the model on the validation set
                 model.eval()
+
                 batch_metrics = []
                 labels = []
-                for eval_i, (_, imgs_eval, targets_eval) in enumerate(valid_dataloader):
-                    images = list(image.to(device) for image in imgs_eval)
+                for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
+                    images = list(img.type(torch.cuda.FloatTensor if use_cuda else torch.FloatTensor) for img in imgs_eval)
                     labels += [t['labels'] for t in targets_eval]
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
                     with torch.no_grad():
@@ -240,12 +249,13 @@ if __name__ == "__main__":
                 print(AsciiTable(ap_table).table)
                 print("---- mAP {}".format(AP.mean()))
 
-                if train:
+                if not train:
                     break
 
         if train and epoch % opt.checkpoint_interval == 0:
-            torch.save(model.state_dict(), "checkpoints/fasterrcnn_ckpt_%d.pth" % epoch)
-            print("Model saved as %s" % ("checkpoints/fasterrcnn_ckpt_%d.pth" % epoch))
+            save_path = os.path.join(backup_path, backup_name + "_epoch_%d.weights" % epoch)
+            torch.save(model.state_dict(), save_path)
+            print("Model saved at %s" % save_path)
 
     logger.close()
     print("Normal ending of the program.")

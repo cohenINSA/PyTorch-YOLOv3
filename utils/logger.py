@@ -1,5 +1,7 @@
 import tensorflow as tf
 from torch.utils.tensorboard import SummaryWriter
+import pandas as pd
+import numpy as np
 
 
 class Logger(object):
@@ -22,3 +24,40 @@ class Logger(object):
 
     def close(self):
         self.writer.close()
+
+
+class DictSaver:
+    """
+    Saves key-value pairs in a pandas DataFrame. The keys are the column labels, each new added data is a new row.
+    Data must be added one by one.
+    """
+    def __init__(self):
+        self.data = None
+
+    def add_data(self, data, index):
+        """
+        :param data: dict with the new values to add and their labels.
+        :param index:
+        :return:
+        """
+        assert type(data) == dict, "DataSaver requires data as dictionnaries."
+        for key, val in data.items():
+            if not type(val) == list:
+                data[key] = [val]
+
+        if self.data is None:
+            # create new DataFrame
+            self.data = pd.DataFrame.from_dict(data)
+            self.data.index = [index] if not type(index) == list else index
+        else:
+            # add to existing dataframe
+            new_df = pd.DataFrame.from_dict(data)
+            new_df.index = [index]
+            if index in self.data.index:
+                print("Index %s already existing. Replacing old values." % str(index))
+                self.data.drop(index)
+            self.data = self.data.append(new_df)
+
+    def save(self, path=None):
+        if self.data is not None:
+            self.data.to_csv(path)

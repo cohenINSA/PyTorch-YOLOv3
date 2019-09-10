@@ -33,6 +33,7 @@ def adjust_learning_rate_darknet(optimizer, batch, cfg):
         param_group['lr'] = lr/batch_size
     return lr
 
+
 def adjust_learning_rate(optimizer, batch, cfg):
     lr = float(cfg['learning_rate'])
     steps = [float(step) for step in cfg['steps'].split(',')]
