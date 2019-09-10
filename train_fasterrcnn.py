@@ -211,6 +211,7 @@ if __name__ == "__main__":
                 print("\n---- Evaluating Model ----\n")
                 # Evaluate the model on the validation set
                 model.eval()
+                Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
                 batch_metrics = []
                 labels = []
@@ -220,8 +221,8 @@ if __name__ == "__main__":
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
                     with torch.no_grad():
                         outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
-                        outputs = postprocess(outputs, conf_thresh, nms_thresh)
-                        outputs = [o.to(device) for o in outputs]
+                    outputs = postprocess(outputs, conf_thresh, nms_thresh)
+                    outputs = [o.to(device) for o in outputs]
 
                     # Compute true positives, predicted scores and predicted labels per sample
                     batch_metrics += batch_statistics(outputs, targets, iou_threshold=iou_thresh)

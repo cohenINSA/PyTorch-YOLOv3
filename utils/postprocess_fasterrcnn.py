@@ -15,7 +15,7 @@ def postprocess(outputs, conf_thresh, nms_thresh):
     :param targets: ground truth data, List of Dicts of Tensors, with the Dicts containing:
                     - 'boxes' (FloatTensor[N, 4])
                     - 'labels' (Int64Tensor[N])
-    :return:
+    :return: boxes only, after non maximum suppression
     """
     predictions = []
     for i, output in enumerate(outputs):
@@ -44,7 +44,13 @@ def postprocess(outputs, conf_thresh, nms_thresh):
 
 
 def batch_statistics(outputs, targets, iou_threshold):
-    """ Compute true positives, predicted scores and predicted labels per sample """
+    """
+    Compute true positives, predicted scores and predicted labels per sample
+    :param outputs: List of predictions [x0, y0, x1, y1, confidence, class label]
+    :param targets:
+    :param iou_threshold:
+    :return:list of True positive, pred_scores and pred_labels for each image in the batch
+    """
     batch_metrics = []
     for sample_i in range(len(outputs)):  # for each img in the batch
         if outputs[sample_i] is None:
@@ -62,7 +68,7 @@ def batch_statistics(outputs, targets, iou_threshold):
         true_positives = np.zeros(pred_boxes.shape[0])
 
         annotations = targets[sample_i]['boxes']
-        target_labels = targets[sample_i]['labels'] if len(annotations) else []
+        target_labels = targets[sample_i]['labels'].cpu() if len(annotations) else []
 
         if len(annotations):
             detected_boxes = []
@@ -74,7 +80,7 @@ def batch_statistics(outputs, targets, iou_threshold):
                     break
 
                 # Ignore if label is not one of the target labels
-                if pred_label not in target_labels.float():
+                if pred_label.item() not in target_labels:
                     continue
 
                 iou, box_index = bbox_iou(pred_box.unsqueeze(0), target_boxes).max(0)
