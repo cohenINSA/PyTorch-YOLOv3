@@ -154,7 +154,7 @@ class ListDatasetFasterRCNN(Dataset):
 
         # Remove empty images
         for img in img_files:
-            with open(img.replace(".png", ".txt").replace(".jpg", ".txt"), "r") as file:
+            with open(img.replace(".png", ".txt").replace(".jpg", ".txt").strip("\n"), "r") as file:
                 lines = file.readlines()
             if len(lines) > 0:
                 for l in lines:
