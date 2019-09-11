@@ -166,7 +166,7 @@ if __name__ == "__main__":
     map_save_path = os.path.join(backup_path, backup_name + "_map.csv")
 
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
-    for epoch in range(init_epoch, max_epoch):
+    for epoch in range(init_epoch, max_epoch+1):
         avg_loss = 0
         batches_done = epoch*nsamples/batch_size
         if train:
@@ -178,7 +178,6 @@ if __name__ == "__main__":
 
                 images = list(image.to(device) for image in imgs)
                 targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
                 loss_dict = model(images, targets)
                 losses = sum(loss for loss in loss_dict.values())
                 loss_value = losses.item()

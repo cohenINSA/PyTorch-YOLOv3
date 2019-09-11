@@ -149,7 +149,17 @@ class ListDatasetFasterRCNN(Dataset):
     def __init__(self, list_path, img_size=(416, 416), transform=None, train=True,
                  target_transform=None, data_augmentation=None, shuffle=True):
         with open(list_path, "r") as file:
-            self.img_files = file.readlines()
+            img_files = file.readlines()
+        self.img_files = []
+
+        # Remove empty images
+        for img in img_files:
+            with open(img.replace(".png", ".txt").replace(".jpg", ".txt"), "r") as file:
+                lines = file.readlines()
+            if len(lines) > 0:
+                for l in lines:
+                    if len(l) > 0:
+                        self.img_files.append(img)
 
         if shuffle:
             random.shuffle(self.img_files)
