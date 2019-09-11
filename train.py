@@ -102,7 +102,7 @@ if __name__ == "__main__":
     model.apply(weights_init_normal)
 
     # If specified we start from checkpoint
-    if opt.pretrained_weights:
+    if opt.pretrained_weights is not None:
         if opt.pretrained_weights.endswith(".pth"):
             model.load_state_dict(torch.load(opt.pretrained_weights))
         else:

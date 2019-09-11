@@ -3,7 +3,7 @@ A minimal PyTorch implementation of YOLOv3, with support for training, inference
 
 ## Installation
 ##### Clone and install requirements
-    $ git clone https://github.com/eriklindernoren/PyTorch-YOLOv3
+    $ git clone https://github.com/cohenINSA/PyTorch-YOLOv3
     $ cd PyTorch-YOLOv3/
     $ sudo pip3 install -r requirements.txt
 
@@ -158,3 +158,7 @@ https://pjreddie.com/yolo/.
   year={2018}
 }
 ```
+
+## To DO
+ - [ ] refactor train/test for faster r cnn
+ - [ ] add loss saving using pandas for yolov3
