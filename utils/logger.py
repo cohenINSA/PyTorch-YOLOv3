@@ -41,12 +41,12 @@ class DictSaver:
         :param index:
         :return:
         """
-        if PANDAS:
-            assert type(data) == dict, "DataSaver requires data as dictionnaries."
-            for key, val in data.items():
-                if not type(val) == list:
-                    data[key] = [val.item()]
+        assert type(data) == dict, "DataSaver requires data as dictionnaries."
+        for key, val in data.items():
+            if not type(val) == list:
+                data[key] = [val.item()]
 
+        if PANDAS:
             if self.data is None:
                 # create new DataFrame
                 self.data = pd.DataFrame.from_dict(data)

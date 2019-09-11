@@ -167,6 +167,7 @@ if __name__ == "__main__":
 
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
     for epoch in range(init_epoch, max_epoch):
+        avg_loss = 0
         batches_done = epoch*nsamples/batch_size
         if train:
             model.train()
@@ -181,6 +182,7 @@ if __name__ == "__main__":
                 loss_dict = model(images, targets)
                 losses = sum(loss for loss in loss_dict.values())
                 loss_value = losses.item()
+                avg_loss += loss_value
 
                 optimizer.zero_grad()
                 losses.backward()
@@ -207,6 +209,8 @@ if __name__ == "__main__":
                     print(log_str)
 
                 optimizer.step()
+            avg_loss /= len(dataloader)
+            print("--Average batch loss: {}\n".format(avg_loss))
 
         loss_logger.save(loss_save_path)
         if valid:
