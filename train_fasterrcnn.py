@@ -1,6 +1,5 @@
 from __future__ import division, print_function
 
-from models import *
 from utils.logger import *
 from utils.utils import *
 from utils.datasets import *
@@ -10,23 +9,17 @@ from utils.postprocess_fasterrcnn import *
 from terminaltables import AsciiTable
 
 import os
-import sys
 import time
 import datetime
 import argparse
 import numpy as np
-import copy
 
-import torch
-import torch.nn
 import torch.optim
 from torch.utils.data import DataLoader
 import torchvision.models
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision import datasets
 
 from torchvision import transforms
-from torch.autograd import Variable
 import torch.optim as optim
 
 
@@ -50,7 +43,6 @@ if __name__ == "__main__":
     parser.add_argument("--conf_thresh", type=str, help="Confidence threshold", default="0.25")
     parser.add_argument("--finetune", default="False", help="Whether to finetune the model or train the full network")
     parser.add_argument("--pretrained_database", default="ImageNet", help="Pretraining of the backbone: ImageNet or COCO")
-    parser.add_argument("--backbone", default="resnet50fpn", help="Backbone: resnet50fpn, resnet101fpn, resnext101")
     opt = parser.parse_args()
     print(opt)
 
@@ -109,15 +101,7 @@ if __name__ == "__main__":
     if opt.pretrained_database == "COCO":
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)  # PRETRAINED ON COCO train 2017
     else:
-        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=False)  # backbone pretrained on ImageNet
-
-    # if opt.pretrained_database == "ImageNet":
-    #     backbone = torchvision.models.resnet50(pretrained=True)  #.features  # Pretrained on ImageNet
-    #     print(backbone)
-    #     model.backbone = backbone
-    # else:
-    #     print("Only COCO and ImageNet databases are available.")
-    #     exit(1)
+        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=False, pretrained_backbone=True)  # backbone pretrained on ImageNet
 
     # Correct number of classes
     num_classes = len(class_names)
