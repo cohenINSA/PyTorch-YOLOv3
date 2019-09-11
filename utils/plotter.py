@@ -24,6 +24,8 @@ if __name__ == "__main__":
         if os.path.exists(save_path):
             if save_name.endswith(".jpg") or save_name.endswith(".png"):
                 save_plot = opt.save
+            else:
+                save_plot = os.path.join(os.path.splitext(opt.pandas)[0]+".png")
         else:
             save_plot = os.path.join(save_path, os.path.splitext(save_name)[0]+".png")
     else:

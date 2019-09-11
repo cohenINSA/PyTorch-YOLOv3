@@ -48,6 +48,9 @@ if __name__ == "__main__":
     parser.add_argument("--iou_thresh", type=str, help="IoU threshold", default="0.5")
     parser.add_argument("--nms_thresh", type=str, help="NMS threshold", default="0.4")
     parser.add_argument("--conf_thresh", type=str, help="Confidence threshold", default="0.25")
+    parser.add_argument("--finetune", default="False", help="Whether to finetune the model or train the full network")
+    parser.add_argument("--pretrained_database", default="ImageNet", help="Pretraining of the backbone: ImageNet or COCO")
+    parser.add_argument("--backbone", default="resnet50fpn", help="Backbone: resnet50fpn, resnet101fpn, resnext101")
     opt = parser.parse_args()
     print(opt)
 
@@ -103,13 +106,26 @@ if __name__ == "__main__":
     iou_thresh = float(opt.iou_thresh)
 
     # Initiate model
-    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)  # PRETRAINED ON COCO train 2017
+    if opt.pretrained_database == "COCO":
+        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)  # PRETRAINED ON COCO train 2017
+    else:
+        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=False)  # backbone pretrained on ImageNet
+
+    # if opt.pretrained_database == "ImageNet":
+    #     backbone = torchvision.models.resnet50(pretrained=True)  #.features  # Pretrained on ImageNet
+    #     print(backbone)
+    #     model.backbone = backbone
+    # else:
+    #     print("Only COCO and ImageNet databases are available.")
+    #     exit(1)
+
     # Correct number of classes
     num_classes = len(class_names)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    # print(model)
+    #print(model)
+    #exit()
 
     # If the model is too big, we can change the backbone following section 2 in
     # https://colab.research.google.com/github/pytorch/vision/blob/temp-tutorial/tutorials/torchvision_finetuning_instance_segmentation.ipynb#scrollTo=mTgWtixZTs3X
@@ -119,7 +135,7 @@ if __name__ == "__main__":
         if opt.pretrained_weights.endswith(".pth"):
             model.load_state_dict(torch.load(opt.pretrained_weights, map_location=lambda storage, loc: storage))
             _, name = os.path.split(opt.pretrained_weights)
-            load_epoch = int(name[:-4].split("_")[-1])
+            load_epoch = int(name[:-4].split("_")[-1]) + 1
         else:
             load_epoch = 0
             print("Pretrained weights must end with .pth. Use pytorch pretrained weights.")
@@ -155,21 +171,27 @@ if __name__ == "__main__":
     optimizer = optim.SGD(params, lr=learning_rate, momentum=momentum, dampening=0, weight_decay=decay)
 
     images_seen = load_epoch*len(dataset)
-    init_epoch = load_epoch + 1
+    init_epoch = load_epoch
     max_epoch = max(opt.epochs, int(max_batches * batch_size / len(dataset)))
     processed_batches = load_epoch/batch_size
 
     loss_logger = DictSaver()
     loss_save_path = os.path.join(backup_path, backup_name + "_loss.csv")
+    map_logger = DictSaver()
+    map_save_path = os.path.join(backup_path, backup_name + "_map.csv")
 
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
+    print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
     model = model.to(device)
+    print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
     for epoch in range(init_epoch, max_epoch):
+        batches_done = epoch*nsamples/batch_size
         if train:
             model.train()
             start_time = time.time()
 
             for batch_i, (_, imgs, targets) in enumerate(dataloader):
+                print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
                 batches_done = len(dataloader) * epoch + batch_i
 
                 images = list(image.to(device) for image in imgs)
@@ -182,7 +204,7 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 losses.backward()
 
-                loss_logger.add_data(loss_dict)
+                loss_logger.add_data(loss_dict, batches_done)
                 if batch_i % 10 == 0:  # print log every 10 batches
                     # ----------------
                     #   Log progress
@@ -192,7 +214,7 @@ if __name__ == "__main__":
                     log_str += "Learning rate={}\n".format(optimizer.state_dict()['param_groups'][0]['lr'])
                     log_str += "Momentum={}\n".format(optimizer.state_dict()['param_groups'][0]['momentum'])
                     log_str += "\n-- Losses --\n"
-                    loss_str = [lk + ": " + str(lv.item()) for lk, lv in loss_dict.items()]
+                    loss_str = [lk + ": " + str(lv) for lk, lv in loss_dict.items()]
                     log_str += "\n".join(loss_str)
                     log_str += "\n-- Total loss: {}\n".format(losses.item())
 
@@ -204,6 +226,7 @@ if __name__ == "__main__":
                     print(log_str)
 
                 optimizer.step()
+                print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
 
         loss_logger.save(loss_save_path)
         if valid:
@@ -249,10 +272,11 @@ if __name__ == "__main__":
                     ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
                 print(AsciiTable(ap_table).table)
                 print("---- mAP {}".format(AP.mean()))
+                map_logger.add_data(AP.mean(), batches_done)
 
                 if not train:
                     break
-
+        map_logger.save(map_save_path)
         if train and epoch % opt.checkpoint_interval == 0:
             save_path = os.path.join(backup_path, backup_name + "_epoch_%d.weights" % epoch)
             torch.save(model.state_dict(), save_path)
