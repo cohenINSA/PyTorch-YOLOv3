@@ -167,6 +167,7 @@ if __name__ == "__main__":
         )
 
     # optimizer = torch.optim.Adam(model.parameters())
+    model = model.to(device)
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = optim.SGD(params, lr=learning_rate, momentum=momentum, dampening=0, weight_decay=decay)
 
@@ -181,9 +182,6 @@ if __name__ == "__main__":
     map_save_path = os.path.join(backup_path, backup_name + "_map.csv")
 
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
-    print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
-    model = model.to(device)
-    print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
     for epoch in range(init_epoch, max_epoch):
         batches_done = epoch*nsamples/batch_size
         if train:
@@ -191,7 +189,6 @@ if __name__ == "__main__":
             start_time = time.time()
 
             for batch_i, (_, imgs, targets) in enumerate(dataloader):
-                print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
                 batches_done = len(dataloader) * epoch + batch_i
 
                 images = list(image.to(device) for image in imgs)
@@ -210,7 +207,7 @@ if __name__ == "__main__":
                     #   Log progress
                     # ----------------
 
-                    log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, opt.epochs, batch_i, len(dataloader))
+                    log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, max_epoch, batch_i, len(dataloader))
                     log_str += "Learning rate={}\n".format(optimizer.state_dict()['param_groups'][0]['lr'])
                     log_str += "Momentum={}\n".format(optimizer.state_dict()['param_groups'][0]['momentum'])
                     log_str += "\n-- Losses --\n"
@@ -226,7 +223,6 @@ if __name__ == "__main__":
                     print(log_str)
 
                 optimizer.step()
-                print("MEMORY ALLOCATED=", torch.cuda.memory_allocated(0))
 
         loss_logger.save(loss_save_path)
         if valid:
