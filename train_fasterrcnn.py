@@ -25,7 +25,7 @@ import torch.optim as optim
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=2, help="number of epochs")
+    parser.add_argument("--epochs", type=int, help="number of epochs")
     parser.add_argument("--batch_size", type=int, help="size of each image batch")
     parser.add_argument("--model_def", type=str, default="config/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument("--iou_thresh", type=str, help="IoU threshold", default="0.5")
     parser.add_argument("--nms_thresh", type=str, help="NMS threshold", default="0.4")
     parser.add_argument("--conf_thresh", type=str, help="Confidence threshold", default="0.25")
-    parser.add_argument("--finetune", default="False", help="Whether to finetune the model or train the full network")
+    parser.add_argument("--freeze", default=None, type=int, help="After which layer stop to freeze the backbone (1 to 4).")
     parser.add_argument("--pretrained_database", default="ImageNet", help="Pretraining of the backbone: ImageNet or COCO")
     opt = parser.parse_args()
     print(opt)
@@ -108,8 +108,6 @@ if __name__ == "__main__":
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    #print(model)
-    #exit()
 
     # If the model is too big, we can change the backbone following section 2 in
     # https://colab.research.google.com/github/pytorch/vision/blob/temp-tutorial/tutorials/torchvision_finetuning_instance_segmentation.ipynb#scrollTo=mTgWtixZTs3X
@@ -125,6 +123,16 @@ if __name__ == "__main__":
             print("Pretrained weights must end with .pth. Use pytorch pretrained weights.")
     else:
         load_epoch = 0
+
+    # Fine-tuning: freezing the network after layer 3 of the backbone
+    backbone_blocks = [name for name, child in model.backbone[0].named_children()]
+    if opt.freeze is not None and opt.freeze <= 4:
+        freeze_blocks = backbone_blocks[:opt.freeze+4]
+        print("Freezing backbone up to layer{}".format(opt.freeze))
+        for name, child in model.backbone[0].named_children():
+            for param_name, params in child.named_parameters():
+                if name in freeze_blocks:
+                    params.requires_grad = False
 
     # Get dataloader
     # With Faster R-CNN: no normalization, already in PyTorch model
@@ -157,7 +165,7 @@ if __name__ == "__main__":
 
     images_seen = load_epoch*len(dataset)
     init_epoch = load_epoch
-    max_epoch = max(opt.epochs, int(max_batches * batch_size / len(dataset)))
+    max_epoch = opt.epochs if opt.epochs is not None else int(max_batches * batch_size / len(dataset))
     processed_batches = load_epoch/batch_size
 
     loss_logger = DictSaver()
