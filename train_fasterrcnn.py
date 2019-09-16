@@ -220,6 +220,12 @@ if __name__ == "__main__":
             print("--Average batch loss: {}\n".format(avg_loss))
 
         loss_logger.save(loss_save_path)
+        
+        if train and epoch % opt.checkpoint_interval == 0:
+            save_path = os.path.join(backup_path, backup_name + "_epoch_%d.weights" % epoch)
+            torch.save(model.state_dict(), save_path)
+            print("Model saved at %s" % save_path)
+
         if valid:
             if epoch % opt.evaluation_interval == 0:
                 print("\n---- Evaluating Model ----\n")
@@ -230,7 +236,7 @@ if __name__ == "__main__":
                 batch_metrics = []
                 labels = []
                 for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
-                    images = list(img.type(torch.cuda.FloatTensor if use_cuda else torch.FloatTensor) for img in imgs_eval)
+                    images = list(img.type(Tensor if use_cuda else torch.FloatTensor) for img in imgs_eval)
                     labels += [t['labels'] for t in targets_eval]
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
                     with torch.no_grad():
@@ -268,10 +274,6 @@ if __name__ == "__main__":
                 if not train:
                     break
         map_logger.save(map_save_path)
-        if train and epoch % opt.checkpoint_interval == 0:
-            save_path = os.path.join(backup_path, backup_name + "_epoch_%d.weights" % epoch)
-            torch.save(model.state_dict(), save_path)
-            print("Model saved at %s" % save_path)
 
     logger.close()
     print("Normal ending of the program.")
