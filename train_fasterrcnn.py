@@ -48,10 +48,11 @@ if __name__ == "__main__":
 
     logger = Logger("logs_fasterrcnn")
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
-    use_cuda = not opt.no_cuda
-    device = torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
-
+    # os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
+    use_cuda = not opt.no_cuda and torch.cuda.is_available()
+    device = torch.cuda.set_device(int(opt.gpus)) 
+    # device = torch.cuda.device("cuda")
+    
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
 
@@ -114,13 +115,14 @@ if __name__ == "__main__":
 
     # If specified we start from checkpoint
     if opt.pretrained_weights is not None:
-        if opt.pretrained_weights.endswith(".pth"):
+        if opt.pretrained_weights.endswith(".pth") or opt.pretrained_weights.endswith('.weights'):
             model.load_state_dict(torch.load(opt.pretrained_weights, map_location=lambda storage, loc: storage))
             _, name = os.path.split(opt.pretrained_weights)
-            load_epoch = int(name[:-4].split("_")[-1]) + 1
+            name, ext = os.path.splitext(name)
+            load_epoch = int(name.split("_")[-1]) + 1
         else:
             load_epoch = 0
-            print("Pretrained weights must end with .pth. Use pytorch pretrained weights.")
+            print("Pretrained weights must end with .pth or .weights. Using pytorch pretrained weights.")
     else:
         load_epoch = 0
 
@@ -237,14 +239,14 @@ if __name__ == "__main__":
                 labels = []
                 for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
                     images = list(img.type(Tensor if use_cuda else torch.FloatTensor) for img in imgs_eval)
-                    labels += [t['labels'] for t in targets_eval]
+                    labels += [t['labels'].tolist() for t in targets_eval]
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
                     with torch.no_grad():
                         outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
                     outputs = postprocess(outputs, conf_thresh, nms_thresh)
                     outputs = [o.to(device) for o in outputs]
 
-                    # Compute true positives, predicted scores and predicted labels per sample
+                    # Compute true positives, predicted scores and predicted labels per sample                    
                     batch_metrics += batch_statistics(outputs, targets, iou_threshold=iou_thresh)
 
                 # Concatenate sample statistics
@@ -253,6 +255,7 @@ if __name__ == "__main__":
                 else:
                     true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in
                                                                 list(zip(*batch_metrics))]
+                labels = [item for sublist in labels for item in sublist]
                 precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
 
                 evaluation_metrics = [
@@ -269,7 +272,7 @@ if __name__ == "__main__":
                     ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
                 print(AsciiTable(ap_table).table)
                 print("---- mAP {}".format(AP.mean()))
-                map_logger.add_data(AP.mean(), batches_done)
+                map_logger.add_data({'mAP': AP.mean()}, batches_done)
 
                 if not train:
                     break
