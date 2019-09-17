@@ -50,7 +50,10 @@ if __name__ == "__main__":
 
     # os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
     use_cuda = not opt.no_cuda and torch.cuda.is_available()
-    device = torch.cuda.set_device(int(opt.gpus)) 
+    if use_cuda:
+        device = torch.cuda.set_device(int(opt.gpus)) 
+    else:
+        device = torch.device("cpu")
     # device = torch.cuda.device("cuda")
     
     os.makedirs("output", exist_ok=True)
