@@ -5,7 +5,7 @@ import argparse
 import pandas as pd
 import os
 
-MARKERS = ['.', 'o', '-', '^', '1', 's', '*', 'p', 'P', 'x']
+MARKERS = ['.', 'o', '_', '^', '1', 's', '*', 'p', 'P', 'x']
 COLORS = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
 LINESTYLES = [':', '-.', '--', '-']
 
@@ -40,6 +40,7 @@ if __name__ == "__main__":
                  linestyle=LINESTYLES[i%len(LINESTYLES)])
     plt.legend()
     plt.show()
-
+    
+    print("\nSaving plot...")
     plt.savefig(save_plot)
     print("Saved at %s" % save_plot)
