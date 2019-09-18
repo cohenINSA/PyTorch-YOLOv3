@@ -179,7 +179,7 @@ if __name__ == "__main__":
     map_save_path = os.path.join(backup_path, backup_name + "_map.csv")
 
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
-    for epoch in range(init_epoch, max_epoch+1):
+    for epoch in range(init_epoch, max_epoch):
         avg_loss = 0
         batches_done = epoch*nsamples/batch_size
         if train:
@@ -241,7 +241,7 @@ if __name__ == "__main__":
                 batch_metrics = []
                 labels = []
                 for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
-                    images = list(img.type(Tensor if use_cuda else torch.FloatTensor) for img in imgs_eval)
+                    images = list(img.type(torch.FloatTensor) for img in imgs_eval)
                     labels += [t['labels'].tolist() for t in targets_eval]
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
                     with torch.no_grad():
