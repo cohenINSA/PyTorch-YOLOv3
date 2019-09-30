@@ -1,5 +1,6 @@
-import tensorflow as tf
 from torch.utils.tensorboard import SummaryWriter
+import os
+
 try:
     import pandas as pd
     PANDAS = True
@@ -60,7 +61,9 @@ class DictSaver:
                     self.data.drop(index)
                 self.data = self.data.append(new_df)
 
-    def save(self, path=None):
+    def save(self, path):
         if PANDAS:
             if self.data is not None:
+                if os.path.exists(path):
+                    path = path[:-4] + "_next.csv"
                 self.data.to_csv(path)

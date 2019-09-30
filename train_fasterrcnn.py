@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, help="number of epochs")
     parser.add_argument("--batch_size", type=int, help="size of each image batch")
-    parser.add_argument("--model_def", type=str, default="config/yolov3.cfg", help="path to model definition file")
+    parser.add_argument("-model_cfg", type=str, default="config/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--n_cpu", type=int, default=1, help="number of cpu threads to use during batch generation")
@@ -43,10 +43,9 @@ if __name__ == "__main__":
     parser.add_argument("--conf_thresh", type=str, help="Confidence threshold", default="0.25")
     parser.add_argument("--freeze", default=None, type=int, help="After which layer stop to freeze the backbone (1 to 4).")
     parser.add_argument("--pretrained_database", default="ImageNet", help="Pretraining of the backbone: ImageNet or COCO")
+    parser.add_argument("--tf_board", default="False", help="Log using tensorboard")
     opt = parser.parse_args()
     print(opt)
-
-    logger = Logger("logs_fasterrcnn")
 
     # os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
     use_cuda = not opt.no_cuda and torch.cuda.is_available()
@@ -57,9 +56,12 @@ if __name__ == "__main__":
     
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
-    print("device=", torch.device)
     train = opt.train == 'True'
     valid = opt.eval == 'True'
+
+    tf_board = opt.tf_board == 'True'
+    if tf_board:
+        logger = Logger("logs_fasterrcnn")
 
     # Get data configuration
     data_config = parse_data_config(opt.data_config)
@@ -67,11 +69,11 @@ if __name__ == "__main__":
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
     backup_path = data_config["backup"]
-    _, backup_name = os.path.split(opt.model_def)
+    _, backup_name = os.path.split(opt.model_cfg)
     backup_name, _ = os.path.splitext(backup_name)
 
     # Get training configuration
-    cfg = parse_model_config(opt.model_def)[0]
+    cfg = parse_model_config(opt.model_cfg)[0]
     batch_size = int(opt.batch_size) if opt.batch_size is not None else int(cfg['batch'])
     max_batches = int(cfg['max_batches'])
     subdivisions = int(cfg['subdivisions'])
@@ -209,7 +211,7 @@ if __name__ == "__main__":
                     log_str += "Learning rate={}\n".format(optimizer.state_dict()['param_groups'][0]['lr'])
                     log_str += "Momentum={}\n".format(optimizer.state_dict()['param_groups'][0]['momentum'])
                     log_str += "\n-- Losses --\n"
-                    loss_str = [lk + ": " + str(lv) for lk, lv in loss_dict.items()]
+                    loss_str = [lk + ": " + str(lv).strip("[]") for lk, lv in loss_dict.items()]
                     log_str += "\n".join(loss_str)
                     log_str += "\n-- Total loss: {}\n".format(losses.item())
 
@@ -269,7 +271,8 @@ if __name__ == "__main__":
                     ("val_mAP", AP.mean()),
                     ("val_f1", f1.mean()),
                 ]
-                logger.list_of_scalars_summary("Evaluation", evaluation_metrics, epoch)
+                if tf_board:
+                    logger.list_of_scalars_summary("Evaluation", evaluation_metrics, epoch)
 
                 # Print class APs and mAP
                 ap_table = [["Index", "Class name", "AP"]]
@@ -283,5 +286,6 @@ if __name__ == "__main__":
                     break
         map_logger.save(map_save_path)
 
-    logger.close()
+    if tf_board:
+        logger.close()
     print("Normal ending of the program.")

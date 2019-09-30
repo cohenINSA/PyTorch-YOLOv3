@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("pandas", type=str, help="Path to the Pandas file containing the data to plot.")
     parser.add_argument("--save", type=str, help="Path and filename to save the plot.")
-    parser.add_argument("--xlabel", type=str, help="Label of the x axis (default=batches)", default="batches")
+    parser.add_argument("--xlabel", type=str, help="Label of the x axis")
     opt = parser.parse_args()
     print(opt)
 
@@ -31,14 +31,18 @@ if __name__ == "__main__":
     else:
         save_plot = os.path.join(os.path.splitext(opt.pandas)[0]+".png")
 
+    # Read a csv file, use first column as labels
     data_df = pd.read_csv(opt.pandas, index_col=0)
 
     x = data_df.index.values
     for i, c in enumerate(data_df.columns.values):
         y = data_df[c].values
-        plt.plot(x, c, data=data_df, marker=MARKERS[i%len(MARKERS)], color=COLORS[i%len(COLORS)],
-                 linestyle=LINESTYLES[i%len(LINESTYLES)])
+        plt.plot(x, c, data=data_df, marker=MARKERS[i % len(MARKERS)], color=COLORS[i % len(COLORS)],
+                 linestyle=LINESTYLES[i % len(LINESTYLES)])
     plt.legend()
+    if opt.xlabel is not None:
+        plt.xlabel(opt.xlabel)
+    opt.ylabel(data_df.columns.values.tolist()[-1])
     plt.show()
     
     print("\nSaving plot...")
