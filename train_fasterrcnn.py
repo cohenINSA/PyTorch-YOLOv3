@@ -51,14 +51,13 @@ if __name__ == "__main__":
     # os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
     use_cuda = not opt.no_cuda and torch.cuda.is_available()
     if use_cuda:
-        device = torch.cuda.set_device(int(opt.gpus)) 
+        device = torch.device("cuda:"+opt.gpus) 
     else:
         device = torch.device("cpu")
-    # device = torch.cuda.device("cuda")
     
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
-
+    print("device=", torch.device)
     train = opt.train == 'True'
     valid = opt.eval == 'True'
 
@@ -177,7 +176,8 @@ if __name__ == "__main__":
     loss_save_path = os.path.join(backup_path, backup_name + "_loss.csv")
     map_logger = DictSaver()
     map_save_path = os.path.join(backup_path, backup_name + "_map.csv")
-
+    avg_loss_logger = DictSaver()
+    avg_loss_save_path = os.path.join(backup_path, backup_name + "_avg_loss_epoch.csv")
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
     for epoch in range(init_epoch, max_epoch):
         avg_loss = 0
@@ -223,6 +223,8 @@ if __name__ == "__main__":
                 optimizer.step()
             avg_loss /= len(dataloader)
             print("--Average batch loss: {}\n".format(avg_loss))
+            avg_loss_logger.add_data({'avg_loss': [avg_loss]}, epoch)
+            avg_loss_logger.save(avg_loss_save_path)
 
         loss_logger.save(loss_save_path)
         
@@ -241,7 +243,7 @@ if __name__ == "__main__":
                 batch_metrics = []
                 labels = []
                 for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
-                    images = list(img.type(torch.FloatTensor) for img in imgs_eval)
+                    images = list(img.to(device) for img in imgs_eval)
                     labels += [t['labels'].tolist() for t in targets_eval]
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
                     with torch.no_grad():
