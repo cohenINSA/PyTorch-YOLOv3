@@ -34,7 +34,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
     parser.add_argument("--train", default='True', help="if True train the model (default=True).")
-    parser.add_argument("--eval", default='False', help="if True evaluate the model on validation data (default=False)")
+    parser.add_argument("--valid", default='True', help="if True evaluate the model on validation data (default=True)")
+    parser.add_argument("--test", default='False', help="if True evaluate the model on test data (default=False)")
     parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (only supports single GPU training for now).",
                         default="0")
     parser.add_argument("--no_cuda", help="Deactivate CUDA support", action="store_true")
@@ -57,7 +58,8 @@ if __name__ == "__main__":
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
     train = opt.train == 'True'
-    valid = opt.eval == 'True'
+    valid = opt.valid == 'True'
+    test = opt.test == 'True'
 
     tf_board = opt.tf_board == 'True'
     if tf_board:
@@ -285,6 +287,52 @@ if __name__ == "__main__":
                 if not train:
                     break
         map_logger.save(map_save_path)
+
+    if test:
+        print("\n---- Testing Model ----\n")
+        # Evaluate the model on the validation set
+        model.eval()
+        Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+
+        batch_metrics = []
+        labels = []
+        for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
+            images = list(img.to(device) for img in imgs_eval)
+            labels += [t['labels'].tolist() for t in targets_eval]
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
+            with torch.no_grad():
+                outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
+            outputs = postprocess(outputs, conf_thresh, nms_thresh)
+            outputs = [o.to(device) for o in outputs]
+
+            # Compute true positives, predicted scores and predicted labels per sample
+            batch_metrics += batch_statistics(outputs, targets, iou_threshold=iou_thresh)
+
+        # Concatenate sample statistics
+        if len(batch_metrics) == 0:
+            true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
+        else:
+            true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in
+                                                        list(zip(*batch_metrics))]
+        labels = [item for sublist in labels for item in sublist]
+        precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
+
+        evaluation_metrics = [
+            ("val_precision", precision.mean()),
+            ("val_recall", recall.mean()),
+            ("val_mAP", AP.mean()),
+            ("val_f1", f1.mean()),
+        ]
+        if tf_board:
+            logger.list_of_scalars_summary("Evaluation", evaluation_metrics, epoch)
+
+        # Print class APs and mAP
+        ap_table = [["Index", "Class name", "AP"]]
+        for i, c in enumerate(ap_class):
+            ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
+        print(AsciiTable(ap_table).table)
+        print("---- mAP {}".format(AP.mean()))
+        map_logger.add_data({'mAP': AP.mean()}, batches_done)
 
     if tf_board:
         logger.close()
