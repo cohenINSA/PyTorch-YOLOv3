@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, help="number of epochs")
     parser.add_argument("--batch_size", type=int, help="size of each image batch")
-    parser.add_argument("-model_cfg", type=str, default="config/yolov3.cfg", help="path to model definition file")
+    parser.add_argument("-model_config", type=str, default="config/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--n_cpu", type=int, default=1, help="number of cpu threads to use during batch generation")
@@ -48,10 +48,10 @@ if __name__ == "__main__":
     opt = parser.parse_args()
     print(opt)
 
-    # os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus
     use_cuda = not opt.no_cuda and torch.cuda.is_available()
     if use_cuda:
-        device = torch.device("cuda:"+opt.gpus) 
+        device = torch.device("cuda:"+opt.gpus)
+        torch.cuda.set_device(device)
     else:
         device = torch.device("cpu")
     
