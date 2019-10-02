@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, help="number of epochs")
     parser.add_argument("--batch_size", type=int, help="size of each image batch")
-    parser.add_argument("-model_config", type=str, default="config/yolov3.cfg", help="path to model definition file")
+    parser.add_argument("--model_config", type=str, default="config/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--n_cpu", type=int, default=1, help="number of cpu threads to use during batch generation")
@@ -71,11 +71,11 @@ if __name__ == "__main__":
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
     backup_path = data_config["backup"]
-    _, backup_name = os.path.split(opt.model_cfg)
+    _, backup_name = os.path.split(opt.model_config)
     backup_name, _ = os.path.splitext(backup_name)
 
     # Get training configuration
-    cfg = parse_model_config(opt.model_cfg)[0]
+    cfg = parse_model_config(opt.model_config)[0]
     batch_size = int(opt.batch_size) if opt.batch_size is not None else int(cfg['batch'])
     max_batches = int(cfg['max_batches'])
     subdivisions = int(cfg['subdivisions'])
