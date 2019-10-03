@@ -5,6 +5,7 @@ from utils.utils import *
 from utils.datasets import *
 from utils.parse_config import *
 from utils.postprocess_fasterrcnn import *
+from utils import evaluation as evaluation
 
 from terminaltables import AsciiTable
 
@@ -242,8 +243,48 @@ if __name__ == "__main__":
                 print("\n---- Evaluating Model ----\n")
                 # Evaluate the model on the validation set
                 model.eval()
-                Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
+                # Lists to store detected and true boxes, labels, scores
+                det_boxes = list()
+                det_labels = list()
+                det_scores = list()
+                true_boxes = list()
+                true_labels = list()
+
+                with torch.no_grad():
+                    for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
+                        images = imgs_eval.to(device)
+                        outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
+                        det_boxes_batch, det_labels_batch, det_scores_batch = \
+                            evaluation.postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, num_classes)
+
+                        # Store GT for mAP calculation
+                        boxes = [t['boxes'].to(device) for t in targets_eval]
+                        labels = [t['labels'].to(device) for t in targets_eval]
+
+                        det_boxes.extend(det_boxes_batch)
+                        det_labels.extend(det_labels_batch)
+                        det_scores.extend(det_scores_batch)
+                        true_boxes.extend(boxes)
+                        true_labels.extend(labels)
+
+                    # Compute mAP
+                    APs, mAP = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels,
+                                                     num_classes, device, iou_thresh)
+                    # Print class APs and mAP
+                    APs = APs.squeeze().tolist()
+                    ap_table = [["Index", "Class name", "AP"]]
+                    for i, c in enumerate(APs):
+                        ap_table += [[c, class_names[c], "%.5f" % APs[i]]]
+                    print(AsciiTable(ap_table).table)
+                    print("---- mAP {}".format(mAP))
+                    map_logger.add_data({'mAP': mAP}, batches_done)
+
+                    if not train:
+                        break
+
+                    map_logger.save(map_save_path)
+                """
                 batch_metrics = []
                 labels = []
                 for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
@@ -286,7 +327,9 @@ if __name__ == "__main__":
 
                 if not train:
                     break
+                
         map_logger.save(map_save_path)
+        """
 
     if test:
         print("\n---- Testing Model ----\n")
