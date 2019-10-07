@@ -277,10 +277,10 @@ if __name__ == "__main__":
                     APs = APs.squeeze().tolist()
                     ap_table = [["Index", "Class name", "AP"]]
                     for i, c in enumerate(APs):
-                        ap_table += [[c, class_names[c], "%.5f" % APs[i]]]
+                        ap_table += [[c, class_names[i], "%.5f" % APs[i]]]
                     print(AsciiTable(ap_table).table)
                     print("---- mAP {}".format(mAP))
-                    map_logger.add_data({'mAP': mAP}, batches_done)
+                    map_logger.add_data({'mAP': [mAP]}, epoch)
 
                     if not train:
                         break

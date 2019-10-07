@@ -46,7 +46,7 @@ class DictSaver:
         assert type(data) == dict, "DataSaver requires data as dictionnaries."
         for key, val in data.items():
             if not type(val) == list:
-                data[key] = [val.item()]
+                data[key] = [val]
 
         if PANDAS:
             if self.data is None:
