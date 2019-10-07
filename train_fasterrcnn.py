@@ -183,6 +183,8 @@ if __name__ == "__main__":
     loss_save_path = os.path.join(backup_path, backup_name + "_loss.csv")
     map_logger = DictSaver()
     map_save_path = os.path.join(backup_path, backup_name + "_map.csv")
+    iou_logger = DictSaver()
+    iou_save_path = os.path.join(backup_path, backup_name + "_iou.csv")
     avg_loss_logger = DictSaver()
     avg_loss_save_path = os.path.join(backup_path, backup_name + "_avg_loss_epoch.csv")
     # Adapted from https://github.com/pytorch/vision/blob/master/references/detection/engine.py
@@ -271,7 +273,7 @@ if __name__ == "__main__":
                         true_labels.extend(labels)
 
                     # Compute mAP
-                    APs, mAP = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels,
+                    APs, mAP, IoU = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels,
                                                      num_classes, device, iou_thresh)
                     # Print class APs and mAP
                     APs = APs.squeeze().tolist()
@@ -279,59 +281,16 @@ if __name__ == "__main__":
                     for i, c in enumerate(APs):
                         ap_table += [[c, class_names[i], "%.5f" % APs[i]]]
                     print(AsciiTable(ap_table).table)
-                    print("---- mAP {}".format(mAP))
+                    print("---- mAP at IoU thresh {}: {}".format(iou_thresh, mAP))
+                    print("---- IoU at conf_thresh {}: {}".format(conf_thresh, IoU))
                     map_logger.add_data({'mAP': [mAP]}, epoch)
+                    iou_logger.add_data({'IoU': [IoU]}, epoch)
 
                     if not train:
                         break
 
                     map_logger.save(map_save_path)
-                """
-                batch_metrics = []
-                labels = []
-                for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
-                    images = list(img.to(device) for img in imgs_eval)
-                    labels += [t['labels'].tolist() for t in targets_eval]
-                    targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
-                    with torch.no_grad():
-                        outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
-                    outputs = postprocess(outputs, conf_thresh, nms_thresh)
-                    outputs = [o.to(device) for o in outputs]
-
-                    # Compute true positives, predicted scores and predicted labels per sample                    
-                    batch_metrics += batch_statistics(outputs, targets, iou_threshold=iou_thresh)
-
-                # Concatenate sample statistics
-                if len(batch_metrics) == 0:
-                    true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
-                else:
-                    true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in
-                                                                list(zip(*batch_metrics))]
-                labels = [item for sublist in labels for item in sublist]
-                precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
-
-                evaluation_metrics = [
-                    ("val_precision", precision.mean()),
-                    ("val_recall", recall.mean()),
-                    ("val_mAP", AP.mean()),
-                    ("val_f1", f1.mean()),
-                ]
-                if tf_board:
-                    logger.list_of_scalars_summary("Evaluation", evaluation_metrics, epoch)
-
-                # Print class APs and mAP
-                ap_table = [["Index", "Class name", "AP"]]
-                for i, c in enumerate(ap_class):
-                    ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
-                print(AsciiTable(ap_table).table)
-                print("---- mAP {}".format(AP.mean()))
-                map_logger.add_data({'mAP': AP.mean()}, batches_done)
-
-                if not train:
-                    break
-                
-        map_logger.save(map_save_path)
-        """
+                    iou_logger.save(iou_save_path)
 
     if test:
         print("\n---- Testing Model ----\n")

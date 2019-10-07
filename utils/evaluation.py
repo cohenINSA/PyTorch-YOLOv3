@@ -83,7 +83,7 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
     :param det_scores: list of Tensors (n_objects)
     :param true_boxes:
     :param true_labels:
-    :return: list of AP for all classes, mAP
+    :return: list of AP for all classes, mAP, IoU
     """
     assert len(det_boxes) == len(det_labels) == len(det_scores) == len(true_boxes) == len(true_labels)  # number of images
     true_images = list()
@@ -111,9 +111,10 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
     det_scores = torch.cat(det_scores, dim=0)  # (n_detections)
 
     # Compute AP for each class
-    print("n classes = ", n_classes)
     average_precisions = torch.zeros(n_classes-1, dtype=torch.float)  # (n_classes)
-    print("empty APs=", average_precisions)
+    sum_IoU = 0.0
+    count_positive_IoU = 0
+    count_all_IoU = 0
     for c in range(1, n_classes):
         # print("true labels=", true_labels)
         # print("true images=", true_images)
@@ -168,12 +169,16 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
                 if true_class_boxes_detected[original_ind] == 0:
                     true_positives[d] = 1
                     true_class_boxes_detected[original_ind] = 1
+                    sum_IoU += max_overlap
+                    count_all_IoU += 1.0
+                    count_positive_IoU += 1.0
                 # Otherwise, it is a false positive
                 else:
                     false_positives[d] = 1
             # Otherwise, it is a false positive
             else:
                 false_positives[d] = 1
+                count_all_IoU += 1.0
 
         # Compute cumulative precision and recall at each detection, in the order of decreasing score
         cumul_true_positives = torch.cumsum(true_positives, dim=0)  # (n_class_detections)
@@ -196,7 +201,8 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
     # Compute mAP
     mean_average_precision = average_precisions.mean().item()
 
-    return average_precisions, mean_average_precision
+    IoU = count_positive_IoU / count_all_IoU
+    return average_precisions, mean_average_precision, IoU
 
 
 def find_intersection(set_1, set_2):
