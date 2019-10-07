@@ -279,7 +279,7 @@ if __name__ == "__main__":
                     APs = APs.squeeze().tolist()
                     ap_table = [["Index", "Class name", "AP"]]
                     for i, c in enumerate(APs):
-                        ap_table += [[c, class_names[i], "%.5f" % APs[i]]]
+                        ap_table += [[i, class_names[i], "%.5f" % c]]
                     print(AsciiTable(ap_table).table)
                     print("---- mAP at IoU thresh {}: {}".format(iou_thresh, mAP))
                     print("---- IoU at conf_thresh {}: {}".format(conf_thresh, IoU))
@@ -333,7 +333,7 @@ if __name__ == "__main__":
         # Print class APs and mAP
         ap_table = [["Index", "Class name", "AP"]]
         for i, c in enumerate(ap_class):
-            ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
+            ap_table += [[i, class_names[i], "%.5f" % AP[i]]]
         print(AsciiTable(ap_table).table)
         print("---- mAP {}".format(AP.mean()))
         map_logger.add_data({'mAP': AP.mean()}, batches_done)
