@@ -221,7 +221,7 @@ class ListDatasetFasterRCNN(Dataset):
         boxes_only = labels_full_range[:, 1:]
 
         cls_only = torch.zeros(len(labels_full_range), dtype=torch.int64)
-        cls_only[:] = labels_full_range[:, 0]
+        cls_only[:] = labels_full_range[:, 0] + 1
 
         outputs['boxes'] = boxes_only.float()
         outputs['labels'] = cls_only

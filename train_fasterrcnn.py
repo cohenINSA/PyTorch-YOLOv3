@@ -71,6 +71,8 @@ if __name__ == "__main__":
     train_path = data_config["train"]
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
+    full_class_names = ['background']
+    full_class_names.extend(class_names)
     backup_path = data_config["backup"]
     _, backup_name = os.path.split(opt.model_config)
     backup_name, _ = os.path.splitext(backup_name)
@@ -112,7 +114,7 @@ if __name__ == "__main__":
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=False, pretrained_backbone=True)  # backbone pretrained on ImageNet
 
     # Correct number of classes
-    num_classes = len(class_names)
+    num_classes = len(full_class_names)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
@@ -160,7 +162,7 @@ if __name__ == "__main__":
         valid_dataset = ListDatasetFasterRCNN(valid_path, transform=transforms.ToTensor(), train=False)
         valid_dataloader = torch.utils.data.DataLoader(
             valid_dataset,
-            batch_size=1,
+            batch_size=2,
             shuffle=False,
             num_workers=opt.n_cpu,
             pin_memory=True,
@@ -253,10 +255,10 @@ if __name__ == "__main__":
 
                 with torch.no_grad():
                     for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
-                        images = imgs_eval.to(device)
+                        images = [img.to(device) for img in imgs_eval]
                         outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
                         det_boxes_batch, det_labels_batch, det_scores_batch = \
-                            evaluation.postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, num_classes)
+                            evaluation.postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, num_classes, device)
 
                         # Store GT for mAP calculation
                         boxes = [t['boxes'].to(device) for t in targets_eval]
