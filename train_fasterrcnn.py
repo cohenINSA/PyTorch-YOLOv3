@@ -15,7 +15,6 @@ import datetime
 import argparse
 import numpy as np
 
-import torch.optim
 from torch.utils.data import DataLoader
 import torchvision.models
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -28,9 +27,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, help="number of epochs")
     parser.add_argument("--batch_size", type=int, help="size of each image batch")
-    parser.add_argument("--model_config", type=str, default="config/yolov3.cfg", help="path to model definition file")
+    parser.add_argument("--model_config", type=str, default="config/yolov3.cfg", help="path to training parameters file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
-    parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
+    parser.add_argument("--weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--n_cpu", type=int, default=1, help="number of cpu threads to use during batch generation")
     parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
@@ -40,9 +39,9 @@ if __name__ == "__main__":
     parser.add_argument("--gpus", type=str, help="Id of the gpu(s) to use (only supports single GPU training for now).",
                         default="0")
     parser.add_argument("--no_cuda", help="Deactivate CUDA support", action="store_true")
-    parser.add_argument("--iou_thresh", type=str, help="IoU threshold", default="0.5")
-    parser.add_argument("--nms_thresh", type=str, help="NMS threshold", default="0.4")
-    parser.add_argument("--conf_thresh", type=str, help="Confidence threshold", default="0.25")
+    parser.add_argument("--iou_thresh", type=str, help="IoU threshold (default=0.5)", default="0.5")
+    parser.add_argument("--nms_thresh", type=str, help="NMS threshold (default=0.4)", default="0.4")
+    parser.add_argument("--conf_thresh", type=str, help="Confidence threshold (default=0.25)", default="0.25")
     parser.add_argument("--freeze", default=None, type=int, help="After which layer stop to freeze the backbone (1 to 4).")
     parser.add_argument("--pretrained_database", default="ImageNet", help="Pretraining of the backbone: ImageNet or COCO")
     parser.add_argument("--tf_board", default="False", help="Log using tensorboard")
@@ -162,7 +161,7 @@ if __name__ == "__main__":
         valid_dataset = ListDatasetFasterRCNN(valid_path, transform=transforms.ToTensor(), train=False)
         valid_dataloader = torch.utils.data.DataLoader(
             valid_dataset,
-            batch_size=2,
+            batch_size=1,
             shuffle=False,
             num_workers=opt.n_cpu,
             pin_memory=True,
@@ -256,9 +255,13 @@ if __name__ == "__main__":
                 true_labels = list()
 
                 with torch.no_grad():
-                    for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
+                    for eval_i, (imgs_paths, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
                         images = [img.to(device) for img in imgs_eval]
-                        outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
+                        try:
+                            outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
+                        except RuntimeError as e:
+                            print("Runtime Error with image ", imgs_paths)
+                            print("Error: {}".format(e))
                         det_boxes_batch, det_labels_batch, det_scores_batch = \
                             evaluation.postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, num_classes, device)
 

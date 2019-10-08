@@ -65,7 +65,8 @@ class DictSaver:
     def save(self, path):
         if PANDAS:
             if self.data is not None:
-                if self.path is None and os.path.exists(path):
-                    path = path[:-4] + "_next.csv"
-                self.path = path
+                if self.path is None:
+                    if os.path.exists(path):
+                        path = path[:-4] + "_next.csv"
+                    self.path = path
                 self.data.to_csv(self.path)

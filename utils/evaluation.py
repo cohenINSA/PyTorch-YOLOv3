@@ -2,14 +2,17 @@
 import torch
 import torchvision.ops
 
+from utils.utils import xywh2xyxy
+
 
 def postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, n_classes, device):
     """
-    Process the batch results
+    Process the batch results: removes the detections with confidence lower than a threshold and perform NMS.
     :param outputs:
     :param conf_thresh:
     :param nms_thresh:
     :param n_classes:
+    :param device:
     :return: all_images_boxes, all_images_labels, all_images_scores
     """
     # Separate boxes and labels for the batch
@@ -75,14 +78,30 @@ def postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, n_classes, de
     return all_images_boxes, all_images_labels, all_images_scores
 
 
+def postproces_batch_yolo(outputs, conf_thresh, nms_thresh, n_classes, device):
+    """
+    Process the batch results: removes the detections with confidence lower than a threshold and perform NMS.
+    :param outputs:
+    :param conf_thresh:
+    :param nms_thresh:
+    :param n_classes:
+    :param device:
+    :return:
+    """
+    # Separate boxes and labels for the batch
+    det_boxes_batch = xywh2xyxy(outputs[..., :4])
+    det_scores_batch = outputs[..., 4]
+
+    class_confs = outputs[..., ]
+
 def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_classes, device, iou_thresh):
     """
 
     :param det_boxes: list of Tensors (n_objects, 4)
     :param det_labels: list of Tensors (n_objects)
     :param det_scores: list of Tensors (n_objects)
-    :param true_boxes:
-    :param true_labels:
+    :param true_boxes: list of Tensors (n_objects, 4)
+    :param true_labels: list of Tensors (n_objects)
     :return: list of AP for all classes, mAP, IoU
     """
     assert len(det_boxes) == len(det_labels) == len(det_scores) == len(true_boxes) == len(true_labels)  # number of images
