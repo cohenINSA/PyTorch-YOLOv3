@@ -13,7 +13,7 @@ def postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, n_classes, de
     :param nms_thresh:
     :param n_classes:
     :param device:
-    :return: all_images_boxes, all_images_labels, all_images_scores
+    :return: all_images_boxes, all_images_labels, all_images_scores, lists of tensors
     """
     # Separate boxes and labels for the batch
     det_boxes_batch = [d['boxes'] for d in outputs]
@@ -89,15 +89,72 @@ def postproces_batch_yolo(outputs, conf_thresh, nms_thresh, n_classes, device):
     :return:
     """
     # Separate boxes and labels for the batch
-    det_boxes_batch = xywh2xyxy(outputs[..., :4])
-    det_scores_batch = outputs[..., 4]
+    det_boxes_batch = [xywh2xyxy(d[..., :4]) for d in outputs]
+    # print("DET BOXES BATCH = ", det_boxes_batch)
 
-    class_confs = outputs[..., ]
+    det_scores_batch = [d[..., 4] for d in outputs]
+    # print("DET SCORES BATCH = ", det_scores_batch)
 
-def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_classes, device, iou_thresh):
+    det_labels_batch = [d[..., 5:].max(1, keepdim=False)[1].type(torch.int64) for d in outputs]
+    # print("DET LABELS BATCH = ", det_labels_batch)
+
+    batch_size = len(det_boxes_batch)
+
+    # Lists to store final outputs
+    all_images_boxes = list()
+    all_images_labels = list()
+    all_images_scores = list()
+
+    for i in range(batch_size):  # For each image in the batch
+        image_boxes = list()
+        image_labels = list()
+        image_scores = list()
+
+        for c in range(n_classes):
+            # Keep boxes and scores when score is above threshold for the particular class
+            score_above_min = (det_scores_batch[i] > conf_thresh) * (det_labels_batch[i] == c)
+            # print("score above min=", score_above_min)
+            n_above_min_score = score_above_min.sum().item()
+            if n_above_min_score == 0:
+                continue
+
+            class_scores = det_scores_batch[i][score_above_min]
+            class_boxes = det_boxes_batch[i][score_above_min]
+            class_labels = det_labels_batch[i][score_above_min]
+
+            # Sort boxes and scores by score
+            class_scores, sort_ind = class_scores.sort(dim=0, descending=True)
+            class_boxes = class_boxes[sort_ind]
+            class_labels = class_labels[sort_ind]
+
+            # Compute nms
+            keep_indices = torchvision.ops.nms(class_boxes, class_scores, nms_thresh)
+            image_boxes.append(class_boxes[keep_indices])
+            image_labels.append(class_labels[keep_indices])
+            image_scores.append(class_scores[keep_indices])
+
+        # If objects are found from any of the classes
+        if len(image_boxes) == 0:
+            image_boxes = torch.empty((0, 4)).to(device)  # (0, 4)
+            image_labels = torch.LongTensor([]).to(device)  # (0)
+            image_scores = torch.empty(0).to(device)  # (0)
+        else:
+            # Concatenate into single tensors
+            image_boxes = torch.cat(image_boxes, dim=0)  # (n_objects, 4)
+            image_labels = torch.cat(image_labels, dim=0)  # (n_objects)
+            image_scores = torch.cat(image_scores, dim=0)  # (n_objects)
+
+        all_images_boxes.append(image_boxes)
+        all_images_labels.append(image_labels)
+        all_images_scores.append(image_scores)
+
+    return all_images_boxes, all_images_labels, all_images_scores
+
+
+def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_classes, device, iou_thresh, bkgd=False):
     """
 
-    :param det_boxes: list of Tensors (n_objects, 4)
+    :param det_boxes: list of Tensors (n_objects, 4), one tensor per image
     :param det_labels: list of Tensors (n_objects)
     :param det_scores: list of Tensors (n_objects)
     :param true_boxes: list of Tensors (n_objects, 4)
@@ -105,16 +162,17 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
     :return: list of AP for all classes, mAP, IoU
     """
     assert len(det_boxes) == len(det_labels) == len(det_scores) == len(true_boxes) == len(true_labels)  # number of images
+    # Store all ground truth objects in a single continuous tensor while keeping track of the image it is from
     true_images = list()
     for i in range(len(true_labels)):
         true_images.extend([i] * true_labels[i].size(0))
     true_images = torch.LongTensor(true_images).to(device)
     # true_images has one place for each true object, with value the index of each image (0 for first image, 1 for second image etc...)
 
-    # True detections are separated by batch
+    # True detections are separated by image in different tensors.
     true_boxes = torch.cat(true_boxes, dim=0)  # (n_objects, 4)
     true_labels = torch.cat(true_labels, dim=0)  # (n_objects)
-
+    # Now indexes match true_images indexes
     assert true_images.size(0) == true_boxes.size(0) == true_labels.size(0)
 
     # Store all detections in a single continuous tensor while keeping track of the image it is from
@@ -124,17 +182,22 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
     det_images = torch.LongTensor(det_images).to(device)
     # det_images has one place for each detected object, with value the index of each image
 
-    # Detections are separated by batch
+    # Detections are separated by image in different tensors.
     det_boxes = torch.cat(det_boxes, dim=0)  # (n_detections, 4)
     det_labels = torch.cat(det_labels, dim=0)  # (n_detections)
     det_scores = torch.cat(det_scores, dim=0)  # (n_detections)
 
     # Compute AP for each class
-    average_precisions = torch.zeros(n_classes-1, dtype=torch.float)  # (n_classes)
+    if bkgd:
+        start_ind = 1
+    else:
+        start_ind = 0
+    average_precisions = torch.zeros(n_classes-start_ind, dtype=torch.float)  # (n_classes)
     sum_IoU = 0.0
     count_positive_IoU = 0
     count_all_IoU = 0
-    for c in range(1, n_classes):
+
+    for c in range(start_ind, n_classes):
         # print("true labels=", true_labels)
         # print("true images=", true_images)
         # Extract only objects with this class
@@ -214,8 +277,7 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
                 precisions[i] = cumul_precision[recalls_above_t].max()
             else:
                 precisions[i] = 0
-        average_precisions[c-1] = precisions.mean()
-        print("average_precisions=", average_precisions)
+        average_precisions[c-start_ind] = precisions.mean()
 
     # Compute mAP
     mean_average_precision = average_precisions.mean().item()

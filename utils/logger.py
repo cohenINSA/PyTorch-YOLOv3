@@ -34,7 +34,7 @@ class DictSaver:
     def __init__(self):
         self.data = None
         if not PANDAS:
-            print("Please install pandas package. Not saving data.")
+            print("Please install pandas package. Data will not be saved.")
         self.path = None
 
     def add_data(self, data, index):
@@ -63,10 +63,9 @@ class DictSaver:
                 self.data = self.data.append(new_df)
 
     def save(self, path):
-        if PANDAS:
-            if self.data is not None:
-                if self.path is None:
-                    if os.path.exists(path):
-                        path = path[:-4] + "_next.csv"
-                    self.path = path
-                self.data.to_csv(self.path)
+        if PANDAS and (self.data is not None):
+            if self.path is None:
+                if os.path.exists(path):
+                    path = path[:-4] + "_next.csv"
+                self.path = path
+            self.data.to_csv(self.path)

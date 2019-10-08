@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from torchvision.ops import boxes as boxes
 from utils.utils import bbox_iou
 import torchvision.ops.boxes as torch_boxes
 

@@ -71,6 +71,7 @@ class ListDataset(Dataset):
             path.replace(".png", ".txt").replace(".jpg", ".txt")
             for path in self.img_files
         ]
+        self.Nsamples = len(self.img_files)
         self.shape = img_size
         self.max_objects = 100
         self.transform = transform
@@ -111,7 +112,7 @@ class ListDataset(Dataset):
             except Exception:
                 labels = np.zeros((0, 5))
 
-        labels = torch.from_numpy(labels)
+        labels = torch.from_numpy(labels)  # (n_boxes, 5)
 
         targets = torch.zeros((len(labels), 6))
         targets[:, 1:] = labels
@@ -122,7 +123,6 @@ class ListDataset(Dataset):
         if self.target_transform is not None:
             targets = self.target_transform(targets)
 
-        # print("outputs=", outputs)
         return img_path, img, targets
 
     def collate_fn(self, batch):
@@ -142,7 +142,7 @@ class ListDataset(Dataset):
         return paths, imgs, targets
 
     def __len__(self):
-        return len(self.img_files)
+        return self.Nsamples
 
 
 class ListDatasetFasterRCNN(Dataset):
@@ -238,7 +238,6 @@ class ListDatasetFasterRCNN(Dataset):
         if self.target_transform is not None:
             outputs['boxes'] = self.target_transform(outputs['boxes'])
 
-        #print("outputs=", outputs)
         return img_path, img, outputs
 
     def collate_fn(self, batch):

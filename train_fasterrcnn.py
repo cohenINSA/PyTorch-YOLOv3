@@ -4,7 +4,7 @@ from utils.logger import *
 from utils.utils import *
 from utils.datasets import *
 from utils.parse_config import *
-from utils.postprocess_fasterrcnn import *
+# from utils.postprocess_fasterrcnn import *
 from utils import evaluation as evaluation
 
 from terminaltables import AsciiTable
@@ -165,7 +165,7 @@ if __name__ == "__main__":
             shuffle=False,
             num_workers=opt.n_cpu,
             pin_memory=True,
-            collate_fn=dataset.collate_fn
+            collate_fn=valid_dataset.collate_fn
         )
 
     # optimizer = torch.optim.Adam(model.parameters())
@@ -260,7 +260,7 @@ if __name__ == "__main__":
                         try:
                             outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
                         except RuntimeError as e:
-                            print("Runtime Error with image ", imgs_paths)
+                            print("Runtime Error with image(s) ", imgs_paths)
                             print("Error: {}".format(e))
                             outputs = list()
                             outputs.extend([{'boxes': torch.empty((0, 4), dtype=torch.float64),
@@ -282,7 +282,7 @@ if __name__ == "__main__":
 
                     # Compute mAP
                     APs, mAP, IoU = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels,
-                                                     num_classes, device, iou_thresh)
+                                                     num_classes, device, iou_thresh, bkgd=True)
                     # Print class APs and mAP
                     APs = APs.squeeze().tolist()
                     ap_table = [["Index", "Class name", "AP"]]
@@ -304,47 +304,52 @@ if __name__ == "__main__":
         print("\n---- Testing Model ----\n")
         # Evaluate the model on the validation set
         model.eval()
-        Tensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
-        batch_metrics = []
-        labels = []
-        for eval_i, (_, imgs_eval, targets_eval) in enumerate(tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
-            images = list(img.to(device) for img in imgs_eval)
-            labels += [t['labels'].tolist() for t in targets_eval]
-            targets = [{k: v.to(device) for k, v in t.items()} for t in targets_eval]
-            with torch.no_grad():
-                outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
-            outputs = postprocess(outputs, conf_thresh, nms_thresh)
-            outputs = [o.to(device) for o in outputs]
+        # Lists to store detected and true boxes, labels, scores
+        det_boxes = list()
+        det_labels = list()
+        det_scores = list()
+        true_boxes = list()
+        true_labels = list()
 
-            # Compute true positives, predicted scores and predicted labels per sample
-            batch_metrics += batch_statistics(outputs, targets, iou_threshold=iou_thresh)
+        with torch.no_grad():
+            for eval_i, (imgs_paths, imgs_eval, targets_eval) in enumerate(
+                    tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
+                images = [img.to(device) for img in imgs_eval]
+                try:
+                    outputs = model(images)  # List[Dict[Tensor]] with Dict containing 'boxes', 'labels' and 'scores'
+                except RuntimeError as e:
+                    print("Runtime Error with image(s) ", imgs_paths)
+                    print("Error: {}".format(e))
+                    outputs = list()
+                    outputs.extend([{'boxes': torch.empty((0, 4), dtype=torch.float64),
+                                     'labels': torch.empty(0, dtype=torch.int64),
+                                     'scores': torch.empty(0)}] * len(images))
 
-        # Concatenate sample statistics
-        if len(batch_metrics) == 0:
-            true_positives, pred_scores, pred_labels = np.array([]), np.array([]), np.array([])
-        else:
-            true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in
-                                                        list(zip(*batch_metrics))]
-        labels = [item for sublist in labels for item in sublist]
-        precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
+                det_boxes_batch, det_labels_batch, det_scores_batch = \
+                    evaluation.postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, num_classes, device)
 
-        evaluation_metrics = [
-            ("val_precision", precision.mean()),
-            ("val_recall", recall.mean()),
-            ("val_mAP", AP.mean()),
-            ("val_f1", f1.mean()),
-        ]
-        if tf_board:
-            logger.list_of_scalars_summary("Evaluation", evaluation_metrics, epoch)
+                # Store GT for mAP calculation
+                boxes = [t['boxes'].to(device) for t in targets_eval]
+                labels = [t['labels'].to(device) for t in targets_eval]
 
-        # Print class APs and mAP
-        ap_table = [["Index", "Class name", "AP"]]
-        for i, c in enumerate(ap_class):
-            ap_table += [[i, class_names[i], "%.5f" % AP[i]]]
-        print(AsciiTable(ap_table).table)
-        print("---- mAP {}".format(AP.mean()))
-        map_logger.add_data({'mAP': AP.mean()}, batches_done)
+                det_boxes.extend(det_boxes_batch)
+                det_labels.extend(det_labels_batch)
+                det_scores.extend(det_scores_batch)
+                true_boxes.extend(boxes)
+                true_labels.extend(labels)
+
+            # Compute mAP
+            APs, mAP, IoU = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels,
+                                                   num_classes, device, iou_thresh, bkgd=True)
+            # Print class APs and mAP
+            APs = APs.squeeze().tolist()
+            ap_table = [["Index", "Class name", "AP"]]
+            for i, c in enumerate(APs):
+                ap_table += [[i, class_names[i], "%.5f" % c]]
+            print(AsciiTable(ap_table).table)
+            print("---- mAP at IoU thresh {}: {}".format(iou_thresh, mAP))
+            print("---- IoU at conf_thresh {}: {}".format(conf_thresh, IoU))
 
     if tf_board:
         logger.close()

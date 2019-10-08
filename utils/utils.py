@@ -98,10 +98,10 @@ def rescale_boxes(boxes, current_dim, original_shape):
 
 def xywh2xyxy(x):
     y = x.new(x.shape)
-    y[..., 0] = x[..., 0] - x[..., 2] / 2
-    y[..., 1] = x[..., 1] - x[..., 3] / 2
-    y[..., 2] = x[..., 0] + x[..., 2] / 2
-    y[..., 3] = x[..., 1] + x[..., 3] / 2
+    y[..., 0] = x[..., 0] - x[..., 2] / 2.
+    y[..., 1] = x[..., 1] - x[..., 3] / 2.
+    y[..., 2] = x[..., 0] + x[..., 2] / 2.
+    y[..., 3] = x[..., 1] + x[..., 3] / 2.
     return y
 
 
@@ -283,7 +283,13 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
     # From (center x, center y, width, height) to (x1, y1, x2, y2)
     prediction[..., :4] = xywh2xyxy(prediction[..., :4])
     output = [None for _ in range(len(prediction))]
+    # print("Utils NMS boxes=", prediction[..., :4])
+    # print("Utils NMS scores=", prediction[..., 4])
+    # print("Utils NMS classes confs=", prediction[..., 5:])
+
     for image_i, image_pred in enumerate(prediction):
+        # print("\nImage pred=", image_pred)
+        # print("Image pred size=", image_pred.size())
         # Filter out confidence scores below threshold
         image_pred = image_pred[image_pred[:, 4] >= conf_thres]
         # If none are remaining => process next image
@@ -291,13 +297,15 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
             continue
         # Object confidence   # times class confidence
         score = image_pred[:, 4]  # * image_pred[:, 5:].max(1)[0]
+        # print("Utils NMS score after threshold =", score)
+        # print("Utils NMS score after threshold size =", score.size())
 
         # Sort by it
         #image_pred = image_pred[(-score).argsort()]
 
-        #print("image_pred shape=", image_pred.size())
-        #print("score shape=", score.reshape((-1, 1)).size())
+        # print("image_pred class confs =", image_pred[:, 5:])
         class_confs, class_preds = image_pred[:, 5:].max(1, keepdim=True)  # cls score, cls id
+        # print("Utils NMS class preds = ", class_preds)
         #print("class conf shape=", class_confs.size())
         detections = torch.cat((image_pred[:, :5], score.reshape((-1, 1)), class_confs.float(), class_preds.float()), 1)
         # Perform non-maximum suppression
