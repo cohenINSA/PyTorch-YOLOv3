@@ -262,6 +262,11 @@ if __name__ == "__main__":
                         except RuntimeError as e:
                             print("Runtime Error with image ", imgs_paths)
                             print("Error: {}".format(e))
+                            outputs = list()
+                            outputs.extend([{'boxes': torch.empty((0, 4), dtype=torch.float64),
+                                             'labels': torch.empty(0, dtype=torch.int64),
+                                             'scores': torch.empty(0)}] * len(images))
+
                         det_boxes_batch, det_labels_batch, det_scores_batch = \
                             evaluation.postprocess_batch_fasterrcnn(outputs, conf_thresh, nms_thresh, num_classes, device)
 
