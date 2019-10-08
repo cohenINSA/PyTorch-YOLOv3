@@ -122,10 +122,10 @@ if __name__ == "__main__":
     # https://colab.research.google.com/github/pytorch/vision/blob/temp-tutorial/tutorials/torchvision_finetuning_instance_segmentation.ipynb#scrollTo=mTgWtixZTs3X
 
     # If specified we start from checkpoint
-    if opt.pretrained_weights is not None:
-        if opt.pretrained_weights.endswith(".pth") or opt.pretrained_weights.endswith('.weights'):
-            model.load_state_dict(torch.load(opt.pretrained_weights, map_location=lambda storage, loc: storage))
-            _, name = os.path.split(opt.pretrained_weights)
+    if opt.weights is not None:
+        if opt.weights.endswith(".pth") or opt.weights.endswith('.weights'):
+            model.load_state_dict(torch.load(opt.weights, map_location=lambda storage, loc: storage))
+            _, name = os.path.split(opt.weights)
             name, ext = os.path.splitext(name)
             load_epoch = int(name.split("_")[-1]) + 1
         else:
