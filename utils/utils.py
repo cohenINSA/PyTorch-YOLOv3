@@ -64,9 +64,9 @@ def load_classes(path):
     """
     Loads class labels at 'path'
     """
-    fp = open(path, "r")
-    names = fp.read().split("\n")[:-1]
-    names = [name for name in names if len(name)>0]
+    with open(path, "r") as fp:
+        names = fp.readlines()
+    names = [n.strip("\r\n ") for n in names if len(n.strip("\r\n ")) > 0]
     return names
 
 
