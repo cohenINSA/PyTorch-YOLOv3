@@ -328,6 +328,75 @@ if __name__ == "__main__":
                     map_logger.save(map_save_path)
                     iou_logger.save(iou_save_path)
 
+    if test:
+        print("\n---- Testing Model ----\n")
+        # Testing the model on the validation set
+        model.eval()
+        # Lists to store detected and true boxes, labels, scores
+        det_boxes = list()
+        det_labels = list()
+        det_scores = list()
+        true_boxes = list()
+        true_labels = list()
+
+        with torch.no_grad():
+            for eval_i, (imgs_paths, imgs_eval, targets_eval) in enumerate(
+                    tqdm.tqdm(valid_dataloader, desc="Detecting objects")):
+                images = imgs_eval.to(device)
+                try:
+                    outputs = model(images)  # Tensor of shape (Nbatch, Ndet, 5+num_classes)
+                except RuntimeError as e:
+                    print("Runtime Error with image(s) ", imgs_paths)
+                    print("Error: {}".format(e))
+                    # outputs = list()
+                    # outputs.extend([{'boxes': torch.empty((0, 4), dtype=torch.float64),
+                    #                  'labels': torch.empty(0, dtype=torch.int64),
+                    #                  'scores': torch.empty(0)}] * len(images))
+                    outputs = torch.empty((len(imgs_eval), 0, 5 + num_classes))
+
+                outputs = outputs.to(device)
+                det_boxes_batch, det_labels_batch, det_scores_batch = \
+                    evaluation.postproces_batch_yolo(outputs, conf_thresh, nms_thresh, num_classes, device)
+
+                # print("\nTargets eval=", targets_eval)
+
+                targets = list()
+                for image_i in range(len(imgs_eval)):
+                    targets_image = targets_eval[targets_eval[:, 0] == image_i]
+                    target = dict()
+
+                    boxes_image = targets_image[:, 2:]
+                    boxes_image = xywh2xyxy(boxes_image) * opt.img_size
+                    boxes_image = np.clip(boxes_image, 0, opt.img_size)
+                    target['boxes'] = boxes_image
+
+                    label_images = targets_image[:, 1]
+                    target['labels'] = label_images
+                    targets.append(target)
+                # print("TARGETS reconstructed = ", targets)
+
+                boxes = [t['boxes'].to(device) for t in targets]
+                labels = [t['labels'].to(device) for t in targets]
+
+                # Store GT for mAP calculation
+                det_boxes.extend(det_boxes_batch)
+                det_labels.extend(det_labels_batch)
+                det_scores.extend(det_scores_batch)
+                true_boxes.extend(boxes)
+                true_labels.extend(labels)
+
+            # Compute mAP
+            APs, mAP, IoU = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes,
+                                                   true_labels, num_classes, device, iou_thresh, bkgd=False)
+            # Print class APs and mAP
+            APs = APs.squeeze().tolist()
+            ap_table = [["Index", "Class name", "AP"]]
+            for i, c in enumerate(APs):
+                ap_table += [[i, class_names[i], "%.5f" % c]]
+            print(AsciiTable(ap_table).table)
+            print("---- mAP at IoU thresh {}: {}".format(iou_thresh, mAP))
+            print("---- IoU at conf_thresh {}: {}".format(conf_thresh, IoU))
+
     if tf_board:
         logger.close()
     print("Normal ending of the program.")
