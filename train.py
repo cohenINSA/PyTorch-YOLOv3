@@ -309,12 +309,6 @@ if __name__ == "__main__":
                         true_labels.extend(labels)
 
                     # Compute mAP
-                    print("\n--COMPUTE MAP--")
-                    print("det_boxes=", det_boxes)
-                    print("det_labels=", det_labels)
-                    print("det_scores=", det_scores)
-                    print("true_boxes=", true_boxes)
-                    print("true_labels=", true_labels)
                     APs, mAP, IoU = evaluation.compute_map(det_boxes, det_labels, det_scores, true_boxes,
                                                            true_labels, num_classes, device, iou_thresh, bkgd=False)
                     # Print class APs and mAP
