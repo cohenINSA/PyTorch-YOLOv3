@@ -157,7 +157,7 @@ if __name__ == "__main__":
     )
     nsamples = dataset.Nsamples
 
-    if valid:
+    if valid or test:
         valid_dataset = ListDatasetFasterRCNN(valid_path, transform=transforms.ToTensor(), train=False)
         valid_dataloader = torch.utils.data.DataLoader(
             valid_dataset,

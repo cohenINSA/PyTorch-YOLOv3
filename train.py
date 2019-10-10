@@ -137,12 +137,12 @@ if __name__ == "__main__":
     )
     nsamples = dataset.Nsamples
 
-    if valid:
+    if valid or test:
         valid_dataset = ListDataset(valid_path, img_size=opt.img_size, multiscale=opt.multiscale_training, train=False,
                                     transform=transforms.ToTensor())
         valid_dataloader = torch.utils.data.DataLoader(
             valid_dataset,
-            batch_size=3,
+            batch_size=1,
             shuffle=False,
             num_workers=opt.n_cpu,
             pin_memory=True,
