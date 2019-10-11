@@ -282,7 +282,10 @@ def compute_map(det_boxes, det_labels, det_scores, true_boxes, true_labels, n_cl
     # Compute mAP
     mean_average_precision = average_precisions.mean().item()
 
-    IoU = count_positive_IoU / count_all_IoU
+    if count_all_IoU == 0:
+        IoU = 0
+    else:
+        IoU = count_positive_IoU / count_all_IoU
     return average_precisions, mean_average_precision, IoU
 
 
