@@ -138,11 +138,11 @@ if __name__ == "__main__":
     nsamples = dataset.Nsamples
 
     if valid or test:
-        valid_dataset = ListDataset(valid_path, img_size=opt.img_size, multiscale=opt.multiscale_training, train=False,
+        valid_dataset = ListDataset(valid_path, img_size=opt.img_size, multiscale=False, train=False,
                                     transform=transforms.ToTensor())
         valid_dataloader = torch.utils.data.DataLoader(
             valid_dataset,
-            batch_size=1,
+            batch_size=3,
             shuffle=False,
             num_workers=opt.n_cpu,
             pin_memory=True,
@@ -281,7 +281,13 @@ if __name__ == "__main__":
                         det_boxes_batch, det_labels_batch, det_scores_batch = \
                             evaluation.postproces_batch_yolo(outputs, conf_thresh, nms_thresh, num_classes, device)
 
-                        #print("\nTargets eval=", targets_eval)
+                        # print("\n\nDetections: ")
+                        # for i in range(len(det_boxes_batch)):
+                        #     print("\nImage path=", imgs_paths[i])
+                        #     for d in range(len(det_boxes_batch[i])):
+                        #         print("boxes=", det_boxes_batch[i][d])
+                        #         print("scores=", det_scores_batch[i][d])
+                        #         print("labels=", det_labels_batch[i][d])
 
                         targets = list()
                         for image_i in range(len(imgs_eval)):
@@ -296,7 +302,6 @@ if __name__ == "__main__":
                             label_images = targets_image[:, 1]
                             target['labels'] = label_images
                             targets.append(target)
-                        #print("TARGETS reconstructed = ", targets)
 
                         boxes = [t['boxes'].to(device) for t in targets]
                         labels = [t['labels'].to(device) for t in targets]

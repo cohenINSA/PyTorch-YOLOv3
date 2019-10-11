@@ -64,9 +64,6 @@ class ListDataset(Dataset):
         with open(list_path, "r") as file:
             self.img_files = file.readlines()
 
-        if shuffle:
-            random.shuffle(self.img_files)
-
         self.label_files = [
             path.replace(".png", ".txt").replace(".jpg", ".txt")
             for path in self.img_files
@@ -160,9 +157,6 @@ class ListDatasetFasterRCNN(Dataset):
                 for l in lines:
                     if len(l) > 0:
                         self.img_files.append(img)
-
-        if shuffle:
-            random.shuffle(self.img_files)
 
         self.label_files = [
             path.replace(".png", ".txt").replace(".jpg", ".txt")
