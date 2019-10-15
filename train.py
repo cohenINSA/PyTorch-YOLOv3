@@ -60,10 +60,6 @@ if __name__ == "__main__":
     valid = opt.valid == 'True'
     test = opt.test == 'True'
 
-    if train and not valid and not test:
-        print("Training YOLOv3 not available yet. Stopping execution here.")
-        exit(1)
-
     tf_board = opt.tf_board == 'True'
     if tf_board:
         logger = Logger("logs_fasterrcnn")
@@ -232,7 +228,8 @@ if __name__ == "__main__":
                                 if name != "grid_size":
                                     tensorboard_log += [("{}_{}".format(name, j+1), metric)]
                         tensorboard_log += [("loss", loss.item())]
-                        logger.list_of_scalars_summary("training", tensorboard_log, batches_done)
+                        if tf_board:
+                            logger.list_of_scalars_summary("training", tensorboard_log, batches_done)
 
                     log_str += AsciiTable(metric_table).table
                     log_str += "\nTotal loss {}".format(loss.item())
