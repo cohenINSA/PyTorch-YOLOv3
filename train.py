@@ -110,6 +110,7 @@ if __name__ == "__main__":
     # Initiate model
     model = Darknet(opt.model_config).to(device)
     model.apply(weights_init_normal)
+    print(model)
 
     # If specified we start from checkpoint
     if opt.weights is not None:
@@ -153,6 +154,8 @@ if __name__ == "__main__":
     init_epoch = int(model.seen / len(dataset))
     max_epoch = opt.epochs if opt.epochs is not None else int(max_batches * batch_size / len(dataset))
     processed_batches = int(model.seen / batch_size)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(s) for s in steps], gamma=0.1)
+
     optimizer.zero_grad()
 
     metrics = [
@@ -182,6 +185,19 @@ if __name__ == "__main__":
     avg_loss_logger = DictSaver()
     avg_loss_save_path = os.path.join(backup_path, backup_name + "_avg_loss_epoch.csv")
 
+    scheduler.last_epoch = init_epoch -1
+
+    # # Plot lr schedule
+    # y = []
+    # for _ in range(epochs):
+    #     scheduler.step()
+    #     y.append(optimizer.param_groups[0]['lr'])
+    # plt.plot(y, label='LambdaLR')
+    # plt.xlabel('epoch')
+    # plt.ylabel('LR')
+    # plt.tight_layout()
+    # plt.savefig('LR.png', dpi=300)
+
     for epoch in range(init_epoch, max_epoch):
         if train:
             model.train()
@@ -197,6 +213,9 @@ if __name__ == "__main__":
                 targets = Variable(targets.to(device), requires_grad=False)
 
                 loss, outputs = model(imgs, targets)
+                if not torch.isfinite(loss):
+                    print("WARNING: non-finit loss, ending training ", loss.item())
+                    exit(3)
                 loss.backward()
 
                 if batches_done % gradient_accumulation:
@@ -240,7 +259,7 @@ if __name__ == "__main__":
                     log_str += "\n---- ETA {}".format(time_left)
 
                     print(log_str)
-
+            scheduler.step()
             model.seen = len(dataloader.dataset) * (epoch+1)
 
             if train and epoch % opt.checkpoint_interval == 0:
