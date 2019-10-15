@@ -142,7 +142,7 @@ if __name__ == "__main__":
                                     transform=transforms.ToTensor())
         valid_dataloader = torch.utils.data.DataLoader(
             valid_dataset,
-            batch_size=3,
+            batch_size=1,
             shuffle=False,
             num_workers=opt.n_cpu,
             pin_memory=True,
